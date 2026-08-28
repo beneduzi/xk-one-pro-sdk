@@ -8,9 +8,10 @@ Lensmoo-free, reverse-engineered Bluetooth SPP support for the Shenju XK One Pro
 |---|---|
 | RFCOMM channel 8 and frame format | **VALIDATED live** |
 | CRC-16/CCITT, 21/21 captured frames | **VALIDATED live** |
-| Free-form bind and ordered setup | **VALIDATED live** |
-| Queries, including `5713` photo_num and `7320` count | **VALIDATED live** |
+| Free-form bind and ordered setup | **VALIDATED live** (unbonded clients) |
+| Queries, including `5713` photo_num and `7320` count | **VALIDATED live** (unbonded clients) |
 | `7300` → `4A0001` JPEG download | **PENDING** end-to-end hardware confirmation; implemented from the captured dialog |
+| Bind for BONDED Android phones | **BLOCKED** — native enrollment crypto; see [docs/BONDED_ENROLLMENT.md](docs/BONDED_ENROLLMENT.md) |
 | Audio routing | **PENDING** |
 | Hardware button media-key events | **PENDING** |
 
@@ -43,5 +44,6 @@ Pair the glasses first. Channel 1 is an AT/HFP interface; binary protocol traffi
 - `docs/HARDWARE.md` — observed hardware, Bluetooth services, profiles, and quirks.
 - `docs/REVERSE_ENGINEERING.md` — evidence and investigation timeline.
 - `docs/ANDROID_INTEGRATION.md` — Kotlin/Flutter integration notes.
+- `docs/BONDED_ENROLLMENT.md` — the bonded-phone `0401` investigation: every hypothesis tested, the extracted bind inputs (productKey/deviceName/timestamp), the Lensmoo instrumentation pipeline (PairIP bypass, split-APK install), and the vendor-SDK path.
 
 See the [MIT license](LICENSE). This is independent reverse engineering, not vendor software.
