@@ -36,7 +36,7 @@ object XkSessionTemplates {
         add("2410", 1, 0xA9)
         add("2420", 2, 0xAE, "en".toByteArray(Charsets.US_ASCII))
         add("C10A", 3, 0xAC)
-        add("C104", 2, 0xB0)
+        add("C104", 2, 0xB0, byteArrayOf(0x01))
         add("57A0", 3, 0xB3, byteArrayOf(0))
         add("5770", 3, 0xB5, byteArrayOf(0))
         add("5713", 1, 0xBE)
