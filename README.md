@@ -4,13 +4,22 @@ Lensmoo-free, reverse-engineered Bluetooth SPP support and SDK for the Shenju XK
 
 ---
 
+## 🔒 100% On-Device & Zero Cloud Dependencies
+
+* **Direct Peer-to-Peer Bluetooth**: The SDK and drivers connect directly to the glasses over local Bluetooth Classic (RFCOMM SPP Channel 8).
+* **No Account or Login Required**: No user registration, vendor accounts, or cloud logins with Lensmoo or Shenju.
+* **Zero Cloud Tokens or Proprietary Keys**: All session tokens and bind parameters are generated randomly in-memory at connection time. No user credentials, API keys, or cloud tokens are ever used or transmitted.
+* **Full Privacy & Offline Operation**: Photo downloads, camera triggers, battery monitoring, and button events occur strictly on-device without internet access.
+
+---
+
 ## Capabilities & Validation Status
 
 | Capability | Status | Notes |
 |---|:---:|---|
 | **RFCOMM Channel 8 & Envelope Layout** | **VALIDATED LIVE** | 16-byte envelope (`0x30`, `0x4A`, `0x2B` headers) |
 | **CRC-16/CCITT Validation** | **VALIDATED LIVE** | Poly `0x1021`, init `0xFFFF`, calculated over payload only |
-| **Session Bind (0001 / 0002)** | **VALIDATED LIVE** | Unbonded and bonded phone enrollment |
+| **Session Bind (0001 / 0002)** | **VALIDATED LIVE** | In-memory random token generation (unbonded & bonded clients) |
 | **Setup & Subsystem Arming Sequence** | **VALIDATED LIVE** | Enables camera pipeline and clears `0x0401` error codes |
 | **Photo Capture Trigger (`57B0` $\rightarrow$ `57B1`)** | **VALIDATED LIVE** | Triggers camera shutter; receives `57B1` + `7320` count |
 | **Photo Download (`7300` $\rightarrow$ `4A0001` burst)** | **VALIDATED LIVE** | Two-layer reassembly: strips 4B transport `cmd_idx` & 5B element metadata prefix |
@@ -29,7 +38,7 @@ from xkglasses import XkGlassesClient
 client = XkGlassesClient(channel=8)
 client.connect("FA:00:11:12:F7:73")    # Replace with your glasses' MAC address
 
-# 1. Bind and arm camera pipeline
+# 1. Bind and arm camera pipeline (100% local, no cloud needed)
 client.bind()
 client.setup()
 
@@ -68,6 +77,17 @@ python3 -m xkglasses.cli --mac FA:00:11:12:F7:73 watch
 
 ---
 
+## Standalone Android / Flutter Example App
+
+A minimal, fully functional Android example application (Flutter + Kotlin) is available in the [`flutter_example/`](flutter_example/) directory:
+
+* Connects to glasses over Bluetooth SPP.
+* Displays real-time connection status and battery percentage.
+* Captures and downloads photos on demand or automatically via the glasses' hardware/touch button.
+* Automatically saves captured photos to the Android Gallery (`Pictures/XKGlasses`).
+
+---
+
 ## Architecture & Protocol Overview
 
 The XK One Pro wire protocol uses a two-tier framing structure:
@@ -98,8 +118,8 @@ The XK One Pro wire protocol uses a two-tier framing structure:
 * [docs/PROTOCOL.md](docs/PROTOCOL.md) — Comprehensive wire protocol specification: envelopes, CRC algorithm, bind handshake, setup sequence, two-layer image reassembly, battery queries, and touch button events.
 * [docs/ANDROID_INTEGRATION.md](docs/ANDROID_INTEGRATION.md) — Production Android / Kotlin integration: high-throughput SPP photo pipeline, background hardware button service (`MediaSession`), and SCO audio routing.
 * [docs/HARDWARE.md](docs/HARDWARE.md) — Hardware profile: physical buttons, touch sensor, battery characteristics, Bluetooth Classic profiles (SPP, HFP/SCO, A2DP, AVRCP).
-* [docs/REVERSE_ENGINEERING.md](docs/REVERSE_ENGINEERING.md) — Chronological investigation, breakthrough milestones, logcat traces, and disassembly findings.
-* [docs/BONDED_ENROLLMENT.md](docs/BONDED_ENROLLMENT.md) — Deep dive into bonded phone pairing, encryption token generation, and the `0401` resolution.
+* [docs/BONDED_ENROLLMENT.md](docs/BONDED_ENROLLMENT.md) — Technical specification for socket security, bond states, session initialization, and 100% offline operation.
+* [docs/REVERSE_ENGINEERING.md](docs/REVERSE_ENGINEERING.md) — Chronological investigation, breakthrough milestones, and disassembly findings.
 
 ---
 
