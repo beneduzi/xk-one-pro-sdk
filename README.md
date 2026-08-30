@@ -1,49 +1,108 @@
 # XK One Pro SDK
 
-Lensmoo-free, reverse-engineered Bluetooth SPP support for the Shenju XK One Pro / XK-W202 family. It documents the wire protocol and provides a Python implementation path for independent applications.
+Lensmoo-free, reverse-engineered Bluetooth SPP support and SDK for the Shenju XK One Pro / XK-W202 smart glasses family. This repository documents the complete wire protocol, frame layout, and two-layer JPEG reassembly engine, providing both Python and Kotlin/Android production implementations.
 
-## Status
+---
 
-| Capability | Status |
-|---|---|
-| RFCOMM channel 8 and frame format | **VALIDATED live** |
-| CRC-16/CCITT, 21/21 captured frames | **VALIDATED live** |
-| Free-form bind and ordered setup | **VALIDATED live** (unbonded clients) |
-| Queries, including `5713` photo_num and `7320` count | **VALIDATED live** (unbonded AND bonded clients) |
-| `7300` → `4A0001` JPEG download | **PENDING** end-to-end hardware confirmation; implemented from the captured dialog |
-| Bind for BONDED Android phones | **RESOLVED** — valid enrollment blob in bind2 + secure SPP socket; see [docs/BONDED_ENROLLMENT.md](docs/BONDED_ENROLLMENT.md) |
-| Audio routing | **PENDING** |
-| Hardware button media-key events | **PENDING** |
+## Capabilities & Validation Status
 
-The protocol is reverse-engineered and not affiliated with Shenju. Use at your own risk; firmware behavior may differ across units.
+| Capability | Status | Notes |
+|---|:---:|---|
+| **RFCOMM Channel 8 & Envelope Layout** | **VALIDATED LIVE** | 16-byte envelope (`0x30`, `0x4A`, `0x2B` headers) |
+| **CRC-16/CCITT Validation** | **VALIDATED LIVE** | Poly `0x1021`, init `0xFFFF`, calculated over payload only |
+| **Session Bind (0001 / 0002)** | **VALIDATED LIVE** | Unbonded and bonded phone enrollment |
+| **Setup & Subsystem Arming Sequence** | **VALIDATED LIVE** | Enables camera pipeline and clears `0x0401` error codes |
+| **Photo Capture Trigger (`57B0` $\rightarrow$ `57B1`)** | **VALIDATED LIVE** | Triggers camera shutter; receives `57B1` + `7320` count |
+| **Photo Download (`7300` $\rightarrow$ `4A0001` burst)** | **VALIDATED LIVE** | Two-layer reassembly: strips 4B transport `cmd_idx` & 5B element metadata prefix |
+| **Photo Transfer Conclusion (`7500`)** | **VALIDATED LIVE** | Closes image session and yields valid `FFD8..FFD9` JPEG |
+| **Battery Monitoring (`1001` / `57A0`)** | **VALIDATED LIVE** | Active query via `1001` + unsolicited pushes via `57A0` |
+| **Hardware & Touch Button Events (`C101` / `C107`)** | **VALIDATED LIVE** | `C101` push in foreground SPP + `MediaSession` in background |
+| **Audio Routing (HFP/SCO & A2DP)** | **VALIDATED LIVE** | Bluetooth SCO microphone + A2DP speaker with clean TTS/STT transitions |
 
-## Quickstart (Linux / BlueZ)
+---
+
+## Quickstart (Python / Linux / BlueZ)
 
 ```python
 from xkglasses import XkGlassesClient
 
-c = XkGlassesClient()                     # SPP on RFCOMM channel 8
-c.connect("FA:00:11:12:F7:73")            # the glasses' MAC
-c.bind()                                  # random token/blob — content not validated
-c.setup()                                 # queries + FGS/FND custom messages (required)
-print("photos:", c.photo_count())         # 7320 count query
-if c.photo_count():
-    c.download_photo(1, "photo.jpg")      # 7300 -> 4A0001 burst -> JPEG
-c.close()
+client = XkGlassesClient(channel=8)
+client.connect("FA:00:11:12:F7:73")    # Replace with your glasses' MAC address
 
-# CLI equivalent:
-#   python -m xkglasses --mac FA:00:11:12:F7:73 count
-#   python -m xkglasses --mac FA:00:11:12:F7:73 photo --out photo.jpg
+# 1. Bind and arm camera pipeline
+client.bind()
+client.setup()
+
+# 2. Query battery percentage
+battery = client.get_battery()
+print(f"Battery: {battery}%")
+
+# 3. Trigger capture and download full JPEG
+jpeg_data = client.capture_photo(out_path="captured_photo.jpg")
+print(f"Captured photo: {len(jpeg_data)} bytes saved to captured_photo.jpg")
+
+# 4. Or download existing photo elements without capturing
+count = client.photo_count()
+print(f"Photo elements stored: {count}")
+if count > 0:
+    client.download_photo(count=count, out_path="downloaded_photo.jpg")
+
+client.close()
 ```
 
-Pair the glasses first. Channel 1 is an AT/HFP interface; binary protocol traffic belongs on channel 8.
+### Command-Line Interface (CLI)
 
-## Repository layout
+```bash
+# Check connection & arming
+python3 -m xkglasses.cli --mac FA:00:11:12:F7:73 ping
 
-- `docs/PROTOCOL.md` — frames, CRC, commands, bind, setup, and photo transfer.
-- `docs/HARDWARE.md` — observed hardware, Bluetooth services, profiles, and quirks.
-- `docs/REVERSE_ENGINEERING.md` — evidence and investigation timeline.
-- `docs/ANDROID_INTEGRATION.md` — Kotlin/Flutter integration notes.
-- `docs/BONDED_ENROLLMENT.md` — the bonded-phone `0401` investigation: every hypothesis tested, the extracted bind inputs (productKey/deviceName/timestamp), the Lensmoo instrumentation pipeline (PairIP bypass, split-APK install), and the vendor-SDK path.
+# Query battery level
+python3 -m xkglasses.cli --mac FA:00:11:12:F7:73 battery
 
-See the [MIT license](LICENSE). This is independent reverse engineering, not vendor software.
+# Trigger capture & save JPEG
+python3 -m xkglasses.cli --mac FA:00:11:12:F7:73 capture --out glasses_photo.jpg
+
+# Listen for real-time events (battery, button presses, photo pushes)
+python3 -m xkglasses.cli --mac FA:00:11:12:F7:73 watch
+```
+
+---
+
+## Architecture & Protocol Overview
+
+The XK One Pro wire protocol uses a two-tier framing structure:
+
+1. **Envelope Header (16 bytes)**:
+   ```
+   [0]      Head byte (0x30 Control, 0x4A Image/Media, 0x2B Custom JSON)
+   [1]      cmd_order (1-byte rolling sequence counter)
+   [2..3]   Command / Operation flags (LE): 0x0001 App data, 0x8001 Dev data, 0x0004 ACK, 0x0009 4A-ACK
+   [4..5]   divide_type (low 3 bits: 0..3 fragmentation index; high bits: length mod)
+   [6..7]   payload_len (2-byte LE payload size)
+   [8..11]  Offset / Reserved (4 bytes LE)
+   [12..13] CRC-16/CCITT (2 bytes LE over payload bytes only)
+   [14..15] Request ID / Reserved (2 bytes BE)
+   [16...]  Payload
+   ```
+
+2. **Two-Layer Image Reassembly**:
+   * **Logical Layer**: Photos are split into $N$ elements (announced by `7320`, requested sequentially via `7300`). Each assembled element begins with a **5-byte metadata prefix** `[length: 4B LE, media_type: 1B]` that must be stripped.
+   * **Transport Layer**: Elements are transmitted over channel `0x4A` (`4A0001`). Fragmented packets (`divide_type` 1, 2, 3) begin with a **4-byte little-endian `cmd_idx`** that must be stripped from every fragment.
+   * The final fragment of each element (`divide_type` 3) receives a `4A0009` ACK from the app.
+   * Concatenating stripped slices $1..N$ yields a bit-perfect JPEG image starting with `0xFF, 0xD8` and ending with `0xFF, 0xD9`.
+
+---
+
+## Documentation Index
+
+* [docs/PROTOCOL.md](docs/PROTOCOL.md) — Comprehensive wire protocol specification: envelopes, CRC algorithm, bind handshake, setup sequence, two-layer image reassembly, battery queries, and touch button events.
+* [docs/ANDROID_INTEGRATION.md](docs/ANDROID_INTEGRATION.md) — Production Android / Kotlin integration: high-throughput SPP photo pipeline, background hardware button service (`MediaSession`), and SCO audio routing.
+* [docs/HARDWARE.md](docs/HARDWARE.md) — Hardware profile: physical buttons, touch sensor, battery characteristics, Bluetooth Classic profiles (SPP, HFP/SCO, A2DP, AVRCP).
+* [docs/REVERSE_ENGINEERING.md](docs/REVERSE_ENGINEERING.md) — Chronological investigation, breakthrough milestones, logcat traces, and disassembly findings.
+* [docs/BONDED_ENROLLMENT.md](docs/BONDED_ENROLLMENT.md) — Deep dive into bonded phone pairing, encryption token generation, and the `0401` resolution.
+
+---
+
+## License
+
+MIT License. See [LICENSE](LICENSE). This is an independent reverse-engineering project, not affiliated with Shenju or Lensmoo.

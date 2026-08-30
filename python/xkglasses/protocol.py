@@ -1,32 +1,27 @@
 """Protocol builders for the XK One Pro smartglasses (SJ/Lensmoo SPP protocol).
 
-Frame layout (all values validated against 21 captured frames + live sessions):
-    [0]   head 0x30 / 0x2b / 0x4a
-    [1]   cmd_order u8
-    [2:4] cmd u16 LE
-    [4:6] divide_type u16 LE
-    [6:8] payload_len u16 LE
-    [8:12] offset u32 LE
-    [12:14] crc16 u16 LE  (CRC-16/CCITT poly 0x1021 init 0xFFFF, over payload only)
-    [14:16] request_id u16 BE
-    [16:]  payload
+Frame layout (all values validated against live sessions and captures):
+    [0]     head: 0x30 (control) / 0x2B (custom) / 0x4A (image/media)
+    [1]     cmd_order: u8 sequence index
+    [2:4]   cmd: u16 LE (0x0001 app data, 0x8001 dev data, 0x0004 ack, 0x0009 4A ack)
+    [4:6]   divide_type: u16 LE (low 3 bits: 0..3 divideType; high bits: logicalLengthMod)
+    [6:8]   payload_len: u16 LE
+    [8:12]  offset: u32 LE (0x00000000)
+    [12:14] crc16: u16 LE (CRC-16/CCITT poly 0x1021 init 0xFFFF over payload only)
+    [14:16] request_id: u16 BE (or 0x0000)
+    [16:]   payload
 
-Payload package: [pk_id:2][ff ff ff ff][format:1][00 00][01][node:4 ASCII][status/action:2][data...]
-
-Validated live: RFCOMM channel 8 carries the binary protocol (channel 1 is an
-AT/HFP interface). The bind token is NOT content-validated (any well-formed
-61-char alphanumeric token works). The setup sequence below is the verbatim
-frame list from a working Lensmoo session (2026-08-27, captured in
-sj_sdk_fresh.log) — replayable as-is.
+Payload package layout:
+    [pk_id: 2 LE] [FF FF FF FF] [action_type: 2 LE] [00 01] [node: 4 ASCII] [arg_len: 2 LE] [arg...]
 """
 
+import random
+import string
 from .frames import Frame, FrameParser
 from .crc import CRC16CCITT
 
 # ---------------------------------------------------------------------------
-# Setup sequence — VERBATIM frames from a captured session (18:40:54.854..18:40:58.776).
-# Order matters: queries and FGS/FND custom messages arm the camera pipeline;
-# without them command responses carry error status 0x0401.
+# Setup sequence — VERBATIM frames from a captured working session
 # ---------------------------------------------------------------------------
 _SETUP_HEX = [
     # 18:40:54.904 — query 7100 (device status)
@@ -95,71 +90,114 @@ _PARSER = FrameParser()
 
 
 def _from_hex(hexstr: str) -> Frame:
-    """Parse a verbatim wire frame into a Frame (CRC-validated)."""
     frames = _PARSER.feed(bytes.fromhex(hexstr))
     assert len(frames) == 1, f"bad captured frame: {hexstr[:24]}"
     return frames[0]
 
 
-def _payload(node: bytes, data: bytes = b"", pk: int = 0, fmt: int = 3, status: bytes = b"\x00\x00") -> bytes:
-    return pk.to_bytes(2, "little") + b"\xff\xff\xff\xff" + bytes((fmt,)) + b"\x00\x00\x01" + node + status + data
+def build_control(
+    cmd_order: int,
+    command_node: str,
+    action_type: int = 3,
+    request_id: int = 0,
+    argument: bytes = b"",
+    head: int = 0x30,
+) -> Frame:
+    """Build a standard 0x30 control request frame."""
+    payload = (
+        request_id.to_bytes(2, "little")
+        + b"\xff\xff\xff\xff"
+        + action_type.to_bytes(2, "little")
+        + b"\x00\x01"
+        + command_node.encode("ascii")
+        + len(argument).to_bytes(2, "little")
+        + argument
+    )
+    return Frame(
+        head=head,
+        cmd_order=cmd_order,
+        cmd=0x0001,
+        divide_type=0,
+        offset=0,
+        request_id=request_id,
+        payload=payload,
+    )
 
 
-def _cmd(node: str, data: bytes = b"", order: int = 0, cmd: int = 1, pk: int = 0, status: bytes = b"\x00\x00", fmt: int = 3) -> Frame:
-    return Frame(cmd_order=order, cmd=cmd, payload=_payload(node.encode(), data, pk, fmt, status))
+def build_ack(cmd_order: int, target_cmd_order: int, head: int = 0x30) -> Frame:
+    """Build a 0004 ACK frame in response to a device packet."""
+    return Frame(
+        head=head,
+        cmd_order=cmd_order,
+        cmd=0x0004,
+        payload=bytes((0x01, target_cmd_order & 0xFF)),
+    )
 
 
 def build_bind_frames() -> list:
-    """Build a session bind: two frames with RANDOM tokens.
-
-    Validated live: the device does NOT validate the bind content — any
-    well-formed 61-char alphanumeric token (bind1, node 0001) and random
-    binary blob (bind2, node 0002) are accepted.
-    """
-    import random
-    import string
-
+    """Build the two-step session bind frames."""
     token = "".join(random.choices(string.ascii_letters + string.digits, k=61)).encode()
     blob = random.randbytes(40)
-    return [
-        _cmd("0001", b"\x00" + token, pk=1, status=b"\x00\x3d"),
-        _cmd("0002", b"\x00" + blob, pk=4, status=b"\x00\x40"),
-    ]
+    f1 = build_control(0, "0001", action_type=3, request_id=1, argument=b"\x00" + token)
+    f2 = build_control(0, "0002", action_type=3, request_id=4, argument=b"\x00" + blob)
+    return [f1, f2]
 
 
 def build_poll(pk_id: int = 0x02) -> Frame:
-    """0004 keepalive/ack poll. Payload is [0x01][pk_id] (captured pattern)."""
-    return Frame(cmd=4, payload=bytes((0x01, pk_id & 0xFF)))
+    """0004 keepalive/ack poll."""
+    return Frame(head=0x30, cmd=0x0004, payload=bytes((0x01, pk_id & 0xFF)))
+
+
+def build_keepalive(cmd_order: int = 0x80) -> Frame:
+    """0004 keepalive packet."""
+    return Frame(head=0x30, cmd_order=cmd_order, cmd=0x0004, payload=bytes((0x01, 0x06)))
 
 
 def setup_sequence() -> list:
-    """The verbatim session setup (after bind): queries + FGS/FND custom msgs.
-
-    Required before photo flows — without it command responses carry the
-    error status 0x0401 instead of 0x0001/0x0000.
-    """
+    """The verbatim session setup (after bind): queries + FGS/FND custom msgs."""
     return [_from_hex(h) for h in _SETUP_HEX]
 
 
-def build_7320() -> Frame:
-    """Request photo element count. Response payload's last byte = count."""
-    return _cmd("7320", pk=0x20)
+def build_57b0(cmd_order: int = 0x24) -> Frame:
+    """Camera arm and picture capture trigger."""
+    return build_control(cmd_order=cmd_order, command_node="57B0", action_type=3, request_id=0xC4)
 
 
-def build_7300(index: int) -> Frame:
-    """Request photo element by index (1-based). Format 02 + status 0001 per capture."""
-    return _cmd("7300", bytes((0x00, index)), pk=0x40 + index, fmt=2, status=b"\x00\x01")
+def build_7320(cmd_order: int = 0x26, request_id: int = 0x20) -> Frame:
+    """Request photo element count."""
+    return build_control(cmd_order=cmd_order, command_node="7320", action_type=3, request_id=request_id)
 
 
-def build_4a0009(pk_id: int = 0x92) -> Frame:
-    """Ack for a 4A0001 data burst. Head 0x4a, cmd 0x0009, payload b'\\x01';
-    the burst counter lives in cmd_order (0x92, 0x94, ...)."""
-    return Frame(head=0x4A, cmd_order=pk_id, cmd=0x0009, payload=b"\x01")
+def build_7300(index: int, cmd_order: int = 0x28, request_id: int = 0x3D) -> Frame:
+    """Request photo element by index (1-based)."""
+    return build_control(
+        cmd_order=cmd_order,
+        command_node="7300",
+        action_type=2,
+        request_id=request_id,
+        argument=bytes((0x00, index & 0xFF)),
+    )
 
 
-def build_7500() -> Frame:
+def build_4a0009(cmd_order: int = 0x92) -> Frame:
+    """Ack for a 4A0001 data burst final fragment (divide_type 3)."""
+    return Frame(head=0x4A, cmd_order=cmd_order, cmd=0x0009, payload=b"\x01")
+
+
+def build_7500(cmd_order: int = 0x34, request_id: int = 0x56) -> Frame:
     """End photo transfer."""
-    return _cmd("7500", pk=0x56, fmt=3, status=b"\x00\x01")
+    return build_control(cmd_order=cmd_order, command_node="7500", action_type=3, request_id=request_id)
+
+
+def build_battery_query(cmd_order: int = 0x8E, request_id: int = 0x8F) -> Frame:
+    """Query battery level (node 1001 with action 1)."""
+    return build_control(
+        cmd_order=cmd_order,
+        command_node="1001",
+        action_type=1,
+        request_id=request_id,
+        argument=bytes((0x00,)),
+    )
 
 
 def verify_crc(frame: Frame) -> bool:

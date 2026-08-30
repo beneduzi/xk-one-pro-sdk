@@ -218,3 +218,73 @@ Result: the instrumented app runs, connects, binds and logs everything (tag
   `encryptData`; both are reproducible (`.so` bundling + a few lines of Kotlin).
 - All artifacts, logs and instrumentation points are documented here so the
   work can continue from this exact point.
+
+## 11. Lensmoo photo/poll sequence (observed protocol findings)
+
+The following sequence was observed in a working Lensmoo session. It is
+included as a wire-level observation, not as a claim that these commands are
+part of a public or standardized protocol:
+
+1. The device pushes `7320`.
+2. The app responds with `300004`, whose payload acknowledges the command order
+   (`cmdOrder`) of the frame it received.
+3. The app sends `7300` polls. The first observed request ID is `0x003E`,
+   followed by `0x0042`, `0x0046`, and subsequent IDs.
+4. The exchange includes `8004`/`8001` ACKs, then `300004`.
+5. The device sends `4A0001` fragments, ending with a `4A0009` fragment whose
+   payload is `[01]`, followed by the next `7300` poll.
+
+### `300004` command-order detail
+
+The `300004` payload is `[01, cmdOrder-of-the-received-frame]`. The second
+byte is the `cmdOrder` from the frame being acknowledged; it is distinct from
+the `cmdOrder` belonging to the `300004` poll/response frame itself. Confusing
+these two command orders produces an incorrect interpretation of the ACK
+relationship.
+
+### `4A` fragmentation and logical units
+
+Observed `4A` media fragmentation uses `divideType` values `1`, `2`, and `3`.
+The observed fragment payload sizes include 583 bytes and 42 bytes. A
+4-byte fragment index is restarted for each logical element, rather than
+continuing across the whole transfer. The first fragment carries the media
+header.
+
+The logical unit and totals observed are important: one photo is composed of
+multiple `7300` elements, and the corresponding `4A` fragments belong to
+those elements. These observations must not be described as a standard
+protocol or used to assert that the format is standardized.
+
+### Limitations and open confirmation
+
+The bytes sent by the app still need to be captured directly to confirm the
+reported failure at `idx=2`. Also, the `4A` protocol appears proprietary;
+the names, sequence, and fragment structure above describe observed behavior
+only and do not establish a public specification.
+
+## 12. Lensmoo photo-transfer protocol findings (2026-08-28)
+
+Verified capture conclusions from eight transfers: five app-triggered transfers
+and three button-triggered transfers. Both trigger paths showed the same
+post-trigger flow.
+
+- `7320` count values were `6, 6, 6, 7, 7` for the five app-triggered
+  transfers and `6` for the button-triggered transfers.
+- Observed transfer latency was 720–905 ms for app-triggered transfers and
+  796–873 ms for button-triggered transfers.
+- Each element followed this sequence: `7300` request → response →
+  `300004` payload `[01, response cmdOrder]` → `4A0001`.
+- The `divideType` is the raw value masked with `& 3`. For `divideType` 1, 2,
+  and 3, the payload contains a little-endian `u32` fragment index. Type 0 is
+  unfragmented.
+- Exactly one `4A0009` was observed, only after type 3. The next `7300` was
+  sent only afterward; `7500` appeared at the end of the transfer.
+- Each element contained five non-JPEG bytes. The JPEG EOI marker appeared
+  only in the final aggregate, not in each element.
+- CRC validation was true for all observed packets. Packet-loss diagnostics
+  were also observed in the capture.
+- The request/cmdOrder baseline for `7300` was `cmdOrder 0x28` and request
+  `0x003D`; the request ID increased by 4 for each element.
+
+Button detection already works in the application and is explicitly out of
+scope here; this section documents the resulting transfer protocol only.
