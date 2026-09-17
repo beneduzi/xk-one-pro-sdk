@@ -130,7 +130,35 @@ into the reserved envelope bytes `[14:16]`. Both are corrected in the SDK update
 
 ---
 
-## 8. Extended exploration: command inventory, settings, resolution, audio
+## 9. Video / audio extraction: negative result
+
+Extracting recorded video or audio over the protocol was investigated and **not achieved**.
+
+Evidence gathered:
+
+* **Protocol**: the vendor SDK contains a video-preview subsystem (`AbVideoPreview`,
+  `toggleVideoPreviewPicture` → node `102A`, `toggleVideoPreviewShoot`) and video frames are
+  parsed as `MsgBean` with `divideType == 5` into `WmVideoFrameInfo`. The `5713` reply reports
+  `video_num` / `record_num`.
+* **Commands**: `102A` and `102C` were sent (with and without arguments, `action` 2/3, minimal and
+  full setup). The device only ACKs them; no frames are emitted.
+* **Gestures**: with an active SPP session, a 2-press gesture (video per the sibling W600 manual)
+  produced **no** stored media — `5713` stayed at `video_num = 0`, `record_num = 0`, and
+  `5712` reported `remain_memory == total_memory` (nothing written).
+* **WiFi**: vendors advertise WiFi 6 (2.4 GHz) for "instant photo and video transfer". A WiFi scan
+  from the host found **no access point** from the glasses.
+* **BLE**: no BLE advertisement was observed; the device exposes only Bluetooth Classic profiles
+  (SPP, A2DP, AVRCP, HFP, PnP). No GATT services were resolvable.
+* **Vendor app**: public reviews of the Lensmoo app consistently state that video and audio
+  recordings **cannot be downloaded** by the app, and that the official workaround (connecting the
+  glasses to a computer over USB) is reported as charge-only.
+
+**Conclusion:** recorded video/audio are kept in the glasses' internal flash and are **not exposed
+through the SPP protocol**. Retrieving them would require hardware access (flash dump). Photos,
+by contrast, transfer reliably (see §1–§3).
+
+> The sibling **VIVO W600** manual (same Lensmoo app family) documents the button gestures:
+> 1 press = photo, **2 presses = video recording** (1 press to stop), long press 3 s = power.
 
 The vendor application (`com.lensmoo.app`) was decompiled and its command builders mined for node
 codes. **45 node codes** were recovered, together with the request-type enum and the settings
