@@ -67,6 +67,19 @@ data class XkFrame(
         const val CHANNEL_IMAGE: Byte = 0x4A
         const val CHANNEL_CUSTOM: Byte = 0x2B
 
+        /**
+         * Build a `0x30` control request.
+         *
+         * [argument] is the command **data only**. The format/type byte (`0x00`) is appended
+         * automatically and the wire length field equals `argument.size`, stored **big-endian**
+         * (the format byte is not counted). Observed on the wire:
+         *  - getter with no data   -> `[0x0000][0x00]`
+         *  - bind 1 (61-byte token)-> `[0x003D][0x00][token]`
+         *  - `7300` element 1      -> `[0x0001][0x00][index]`
+         *
+         * A wrong length (off by one) or little-endian order makes the device reply with a
+         * generic 18-byte response and then drop the link.
+         */
         fun createControl(
             cmdOrder: Int,
             commandNode: String,
@@ -74,13 +87,15 @@ data class XkFrame(
             requestId: Int = 0,
             argument: ByteArray = ByteArray(0)
         ): XkFrame {
-            val p = ByteBuffer.allocate(16 + argument.size).order(ByteOrder.LITTLE_ENDIAN)
+            val p = ByteBuffer.allocate(17 + argument.size).order(ByteOrder.LITTLE_ENDIAN)
             p.putShort((requestId and 0xFFFF).toShort())
             p.putInt(-1) // 0xFFFFFFFF
             p.putShort((actionType and 0xFFFF).toShort())
             p.put(byteArrayOf(0, 1))
             p.put(commandNode.toByteArray(Charsets.US_ASCII))
-            p.putShort((argument.size and 0xFFFF).toShort())
+            p.put(((argument.size shr 8) and 0xFF).toByte()) // length, big-endian
+            p.put((argument.size and 0xFF).toByte())
+            p.put(0) // format/type byte
             p.put(argument)
             return XkFrame(
                 cmdOrder = cmdOrder,

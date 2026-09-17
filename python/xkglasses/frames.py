@@ -14,7 +14,7 @@ class Frame:
     def encode(self) -> bytes:
         h = bytes((self.head, self.cmd_order)) + self.cmd.to_bytes(2, 'little') + self.divide_type.to_bytes(2, 'little')
         h += len(self.payload).to_bytes(2, 'little') + self.offset.to_bytes(4, 'little')
-        h += CRC16CCITT.compute(self.payload).to_bytes(2, 'little') + self.request_id.to_bytes(2, 'big')
+        h += CRC16CCITT.compute(self.payload).to_bytes(2, 'little') + (0).to_bytes(2, 'little')
         return h + self.payload
 
 class FrameParser:
@@ -27,7 +27,7 @@ class FrameParser:
             n = 16 + int.from_bytes(self._buffer[6:8], 'little')
             if len(self._buffer) < n: break
             raw = bytes(self._buffer[:n]); del self._buffer[:n]
-            if raw[0] in (0x30, 0x2b) and CRC16CCITT.compute(raw[16:]) != int.from_bytes(raw[12:14], 'little'):
+            if raw[0] in (0x30, 0x2b, 0x4a) and CRC16CCITT.compute(raw[16:]) != int.from_bytes(raw[12:14], 'little'):
                 raise ValueError('frame CRC mismatch')
             result.append(Frame(raw[0], raw[1], int.from_bytes(raw[2:4], 'little'), int.from_bytes(raw[4:6], 'little'), int.from_bytes(raw[8:12], 'little'), int.from_bytes(raw[14:16], 'big'), raw[16:]))
         return result

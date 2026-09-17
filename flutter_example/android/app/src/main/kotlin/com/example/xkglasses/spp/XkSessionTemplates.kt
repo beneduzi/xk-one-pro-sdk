@@ -11,8 +11,9 @@ object XkSessionTemplates {
     fun bindSequence(): List<XkFrame> {
         val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         val token = (1..61).map { chars.random() }.joinToString("")
-        val tokenBytes = byteArrayOf(0) + token.toByteArray(Charsets.US_ASCII)
-        val blobBytes = byteArrayOf(0) + ByteArray(40) { (it * 7).toByte() }
+        // Data only: createControl appends the format byte and the length.
+        val tokenBytes = token.toByteArray(Charsets.US_ASCII)
+        val blobBytes = ByteArray(64) { (it * 7).toByte() }
 
         val f1 = XkFrame.createControl(cmdOrder = 0, commandNode = "0001", actionType = 3, requestId = 1, argument = tokenBytes)
         val f2 = XkFrame.createControl(cmdOrder = 0, commandNode = "0002", actionType = 3, requestId = 4, argument = blobBytes)
@@ -40,7 +41,8 @@ object XkSessionTemplates {
         add("57A0", 3, 0xB3, byteArrayOf(0))
         add("5770", 3, 0xB5, byteArrayOf(0))
         add("5713", 1, 0xBE)
-        add("57B0", 3, 0xC4)
+        // NOTE: 57B0 is intentionally NOT part of setup — it fires the camera shutter.
+        // It is sent only when a capture is requested (see photo("57B0")).
 
         return frames
     }
@@ -56,7 +58,7 @@ object XkSessionTemplates {
             "7320" -> XkFrame.createControl(cmdOrder = cmdOrder, commandNode = "7320", actionType = 3, requestId = 0x20)
             "7300" -> {
                 val idx = (index ?: 1).toByte()
-                XkFrame.createControl(cmdOrder = cmdOrder, commandNode = "7300", actionType = 2, requestId = requestId, argument = byteArrayOf(0, idx))
+                XkFrame.createControl(cmdOrder = cmdOrder, commandNode = "7300", actionType = 2, requestId = requestId, argument = byteArrayOf(idx))
             }
             "4A0009" -> XkFrame.createImageAck(cmdOrder = cmdOrder)
             "7500" -> XkFrame.createControl(cmdOrder = cmdOrder, commandNode = "7500", actionType = 3, requestId = 0x56)

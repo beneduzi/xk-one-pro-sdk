@@ -80,8 +80,8 @@ _SETUP_HEX = [
     "30880100000011000000000083DF0000BE00FFFFFFFF0100000135373133000000",
     # 18:40:56.310 — poll
     "308B040000000200000000003F3A00000123",
-    # 18:40:57.748 — 57B0 (camera arm / preview picture request)
-    "308C010000001100000000006BEB0000C400FFFFFFFF0300000135374230000000",
+    # NOTE: 57B0 (capture trigger) is intentionally NOT part of the setup sequence.
+    # It fires the camera shutter, so including it here means connecting takes a photo.
     # 18:40:58.776 — poll
     "308D04000000020000000000F95A00000125",
 ]
@@ -103,14 +103,28 @@ def build_control(
     argument: bytes = b"",
     head: int = 0x30,
 ) -> Frame:
-    """Build a standard 0x30 control request frame."""
+    """Build a standard 0x30 control request frame.
+
+    ``argument`` is the command **data only**. The format/type byte (``0x00``) is
+    appended automatically and the wire length field equals ``len(argument)``,
+    stored **big-endian** — the format byte is *not* counted. Observed on the wire:
+
+    * getter with no data  -> ``[0x0000][0x00]``
+    * bind 1 (61-byte token) -> ``[0x003D][0x00][token]``
+    * ``7300`` element 1   -> ``[0x0001][0x00][index]``
+
+    Emitting ``len == len(rest)`` (off by one) or little-endian byte order is a
+    confirmed failure mode: the device answers with a generic 18-byte response and
+    then drops the RFCOMM link.
+    """
     payload = (
         request_id.to_bytes(2, "little")
         + b"\xff\xff\xff\xff"
         + action_type.to_bytes(2, "little")
         + b"\x00\x01"
         + command_node.encode("ascii")
-        + len(argument).to_bytes(2, "little")
+        + len(argument).to_bytes(2, "big")
+        + b"\x00"
         + argument
     )
     return Frame(
@@ -137,9 +151,9 @@ def build_ack(cmd_order: int, target_cmd_order: int, head: int = 0x30) -> Frame:
 def build_bind_frames() -> list:
     """Build the two-step session bind frames."""
     token = "".join(random.choices(string.ascii_letters + string.digits, k=61)).encode()
-    blob = random.randbytes(40)
-    f1 = build_control(0, "0001", action_type=3, request_id=1, argument=b"\x00" + token)
-    f2 = build_control(0, "0002", action_type=3, request_id=4, argument=b"\x00" + blob)
+    blob = random.randbytes(64)
+    f1 = build_control(0, "0001", action_type=3, request_id=1, argument=token)
+    f2 = build_control(0, "0002", action_type=3, request_id=4, argument=blob)
     return [f1, f2]
 
 
@@ -175,7 +189,7 @@ def build_7300(index: int, cmd_order: int = 0x28, request_id: int = 0x3D) -> Fra
         command_node="7300",
         action_type=2,
         request_id=request_id,
-        argument=bytes((0x00, index & 0xFF)),
+        argument=bytes((index & 0xFF,)),
     )
 
 
@@ -196,7 +210,6 @@ def build_battery_query(cmd_order: int = 0x8E, request_id: int = 0x8F) -> Frame:
         command_node="1001",
         action_type=1,
         request_id=request_id,
-        argument=bytes((0x00,)),
     )
 
 
