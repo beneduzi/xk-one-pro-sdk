@@ -41,7 +41,9 @@ def test_setup_sequence_objects():
     for f in seq:
         assert protocol.verify_crc(f)
     nodes = [f.payload[10:14] for f in seq if f.head == 0x30 and f.cmd == 1]
-    assert b"102E" in nodes and b"57B0" in nodes and b"5713" in nodes
+    assert b"102E" in nodes and b"5713" in nodes
+    # 57B0 must NOT be part of setup: it triggers the shutter.
+    assert b"57B0" not in nodes
 
 
 def test_bind_frames_structure():
@@ -74,7 +76,7 @@ def test_tamper():
     raw = bytearray(Frame(payload=b"abc").encode())
     raw[-1] ^= 1
     try:
-        FrameParser().feed(raw)
+        FrameParser().feed(bytes(raw))
         assert False, "CRC tamper not detected"
     except ValueError:
         pass
@@ -147,6 +149,84 @@ def test_image_reassembler():
     assert reassembler.is_complete
     jpeg = reassembler.build_jpeg()
     assert jpeg == b"\xff\xd8\x01\x02\x03\x04\xff\xd9"
+
+
+# --- byte-exact goldens against captured frames -----------------------------
+# These lock in the control-payload framing validated on real hardware:
+#   [pk_id:2 LE][FFFFFFFF][action:2 LE][0001][node:4][len:2 BE][format:1=0x00][data]
+# A wrong length (off-by-one) or little-endian order makes the device reply with a
+# generic 18-byte response and then drop the link.
+
+def _captured_payload(hexstr: str) -> bytes:
+    raw = bytes.fromhex(hexstr)
+    plen = int.from_bytes(raw[6:8], "little")
+    return raw[16:16 + plen]
+
+
+def test_golden_7300_element_request():
+    cap = _captured_payload(
+        "303601000000120000000000119900003E00FFFFFFFF020000013733303000010001")
+    gen = protocol.build_7300(index=1)
+    assert len(gen.payload) == len(cap) == 18
+    # pk_id is session-specific; everything else must match byte for byte
+    assert gen.payload[2:] == cap[2:]
+
+
+def test_golden_57b0_is_17_bytes_with_format_byte():
+    cap = _captured_payload(
+        "308C010000001100000000006BEB0000C400FFFFFFFF0300000135374230000000")
+    gen = protocol.build_57b0()
+    assert len(gen.payload) == 17 == len(cap)
+    assert gen.payload[2:] == cap[2:]
+
+
+def test_golden_1001_query():
+    cap = _captured_payload(
+        "307501000000110000000000465B0000A300FFFFFFFF0100000131303031000000")
+    gen = protocol.build_battery_query(cmd_order=0x8E, request_id=0x8F)
+    assert gen.payload[2:] == cap[2:]
+
+
+def test_control_length_is_big_endian_and_excludes_format_byte():
+    f = protocol.build_control(0, "0001", action_type=3, request_id=1, argument=b"Z" * 61)
+    assert f.payload[14:16] == b"\x00\x3d"      # 61, big-endian
+    assert f.payload[16] == 0x00                # format byte
+    assert f.payload[17:] == b"Z" * 61
+    assert len(f.payload) == 16 + 1 + 61
+
+
+def test_control_without_data_has_zero_length_and_format_byte():
+    f = protocol.build_control(0, "7100", action_type=1)
+    assert f.payload[10:14] == b"7100"
+    assert f.payload[14:16] == b"\x00\x00"
+    assert f.payload[16:] == b"\x00"
+    assert len(f.payload) == 17
+
+
+def test_bind_frames_match_captured_structure():
+    f1, f2 = protocol.build_bind_frames()
+    assert f1.payload[10:14] == b"0001"
+    assert f1.payload[14:16] == b"\x00\x3d"     # 61-byte token
+    assert f1.payload[16] == 0x00
+    assert len(f1.payload[17:]) == 61
+    assert f2.payload[10:14] == b"0002"
+    assert f2.payload[14:16] == b"\x00\x40"     # 64-byte blob
+    assert len(f2.payload[17:]) == 64
+
+
+def test_encoded_envelope_reserved_bytes_are_zero():
+    raw = protocol.build_57b0().encode()
+    assert raw[14:16] == b"\x00\x00"
+
+
+def test_image_frame_crc_is_validated():
+    raw = bytearray(Frame(head=0x4A, payload=b"\x01\x02\x03").encode())
+    raw[-1] ^= 1
+    try:
+        FrameParser().feed(bytes(raw))
+        assert False, "0x4A CRC tamper not detected"
+    except ValueError:
+        pass
 
 
 if __name__ == "__main__":

@@ -42,3 +42,8 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Unit tests for the native SPP stack (see src/test/java/.../spp/).
+    testImplementation("junit:junit:4.13.2")
+}
