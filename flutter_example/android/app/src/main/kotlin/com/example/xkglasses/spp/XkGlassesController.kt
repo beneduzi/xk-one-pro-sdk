@@ -21,6 +21,11 @@ class XkGlassesController(private val device: BluetoothDevice, private val cache
     var photoPushListener: ((Int) -> Unit)? = null
     var voiceButtonListener: (() -> Unit)? = null
 
+    /** Node 57A0 reports the video-preview state (0 = off, 1 = on), not the battery. */
+    var previewStateListener: ((Int) -> Unit)? = null
+    var previewState: Int? = null
+        private set
+
     private val client = XkSppClient(device)
     private val photoLock = Any()
     private var bound = false
@@ -214,20 +219,15 @@ class XkGlassesController(private val device: BluetoothDevice, private val cache
             return
         }
 
-        if (tag == "57A0" && f.fromDevice && p.size >= 18) {
-            val b16 = p[16].toInt() and 0xFF
-            val b17 = p[17].toInt() and 0xFF
-            var level: Int? = null
-            var charging = false
-            if (b17 in 0..100 && b16 in 0..1) {
-                charging = (b16 == 1)
-                level = b17
-            } else if (b16 in 0..100 && b17 in 0..1) {
-                charging = (b17 == 1)
-                level = b16
-            }
-            if (level != null && level in 0..100) {
-                batteryListener?.invoke(level, charging)
+        // Node 57A0 is the video-preview state, NOT the battery. The vendor SDK's
+        // AbVideoPreview implementation reads data[0] as the preview state. Battery comes
+        // from node 1001 (`battery_main`).
+        if (tag == "57A0" && f.fromDevice) {
+            // Reply payload after the 4-char node: [type:1][len:2 LE][data]
+            if (p.size >= 18 && (p[14].toInt() and 0xFF) == 0x00) {
+                val state = p[17].toInt() and 0xFF
+                previewState = state
+                previewStateListener?.invoke(state)
             }
         }
     }

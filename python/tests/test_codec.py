@@ -229,6 +229,48 @@ def test_image_frame_crc_is_validated():
         pass
 
 
+# --- Reply data byte parsing (real captured frames) ------------------------
+def test_reply_data_byte_matches_captured_frames():
+    from xkglasses.client import _reply_data_byte
+
+    # 57A0 reply in the setup sequence: type 0x00, len 1, data [0x00]
+    # (video-preview state = off; captured live while battery_main was 100%)
+    assert _reply_data_byte(bytes.fromhex(
+        "1e00ffffffff048000013537413000010000")) == 0x00
+
+    # 57A0 standalone query: type 0x04 (status/error) -> no raw data byte
+    assert _reply_data_byte(bytes.fromhex(
+        "0000ffffffff648000013537413004010003")) is None
+
+    # 1017 settings: type 0x00, len 4, data [0x1f, 0x00, 0x00, 0x00]
+    assert _reply_data_byte(bytes.fromhex(
+        "0000ffffffff64800001313031370004001f000000")) == 0x1F
+
+    # C101 camera control: type 0x04 (no-op status) -> no raw data byte
+    assert _reply_data_byte(bytes.fromhex(
+        "0000ffffffff648000014331303104010004")) is None
+
+    # Short payload is rejected rather than raising
+    assert _reply_data_byte(b"\x00" * 17) is None
+
+
+def test_57a0_does_not_overwrite_battery():
+    """Regression: 57A0 is the video-preview state, not a battery push.
+
+    Parsing it as a battery level used to report 0% while the device was at 100%.
+    """
+    from xkglasses.client import XkGlassesClient
+
+    c = XkGlassesClient()
+    c.battery_level = 100
+    c._handle_frame(Frame(
+        head=0x30, cmd=0x8001, cmd_order=0x1E,
+        payload=bytes.fromhex("1e00ffffffff048000013537413000010000"),
+    ))
+    assert c.battery_level == 100, "57A0 must not touch battery_level"
+    assert c.preview_state == 0x00
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

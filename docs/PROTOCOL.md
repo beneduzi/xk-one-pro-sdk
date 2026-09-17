@@ -102,7 +102,7 @@ remaining frames are queries/telemetry:
 4. `1003` (firmware)
 5. `2410` / `2420` (preview parameters)
 6. `C10A` / `C104` (camera control — `C104` does **not** change capture resolution)
-7. `57A0` / `5770` (battery / storage)
+7. `57A0` (video-preview state) / `5770` (storage)
 8. `5713` (photo count)
 9. `2B` custom messages (`F0600100`, `F0600300`, `FGS`, `FND`) — all optional
 
@@ -202,14 +202,25 @@ Battery level can be determined through two methods:
  "screen":"w320h380","preview_width":"160","preview_height":"120","offline_asr_auth":"1"}
 ```
 
-### Method B: Unsolicited Battery Push (`57A0`)
-* The glasses may push a `57A0` frame (`action = 0x8001`) when the battery state changes.
-* The byte-level interpretation below is a **hypothesis**, not a verified specification. A
-  physical charge/discharge test has not been completed. Known issue: the current SDK discards a
-  legitimate `0%` reading (`level > 0` check) — this is a bug.
-* Payload byte offsets `16..17`:
-  * If byte 16 is `0` or `1` (charging status) and byte 17 is `0..100` (level %): `charging = (b16 == 1)`, `level = b17`.
-  * If byte 17 is `0` or `1` (charging status) and byte 16 is `0..100` (level %): `charging = (b17 == 1)`, `level = b16`.
+### Method B: Video-preview state (`57A0`)
+
+`57A0` is **not** a battery push. The vendor SDK's video-preview handler
+(`AbVideoPreview` / the `Wlc` implementation) sends `57A0` with an empty payload and reads
+`data[0]` of the reply as the **video-preview state** (`0` = off, `1` = on). Its log strings are
+*"App get video preview 事件"* (request) and *"device video preview state"* (reply).
+
+Verified live while the battery reported `100`:
+
+| Direction | Payload (after the node) | Meaning |
+|---|---|---|
+| App → glasses | `[type=0x00][len=1][0x00]` | query preview state |
+| Glasses → App | `[type=0x00][len=1][0x00]` | preview off |
+
+So the reply byte is a preview flag, **not** a charge level — treating it as a battery percentage
+reports `0%` on a fully charged device. Battery comes from `1001` (`battery_main`) only.
+
+> There is **no** observed charging flag in the protocol. The SDK's `is_charging` therefore has no
+> data source and stays `False`.
 
 ---
 

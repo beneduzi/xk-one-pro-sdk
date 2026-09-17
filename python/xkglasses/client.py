@@ -27,6 +27,23 @@ from .reassembler import XkImageReassembler
 log = logging.getLogger("xkglasses")
 
 
+def _reply_data_byte(payload: bytes) -> Optional[int]:
+    """Returns the first data byte of a reply payload, or ``None``.
+
+    Reply payload layout (after the 4-char node): ``[type:1][len:2 LE][data]``.
+    Only ``type == 0x00`` carries raw data; other types are JSON (``0x02``) or a
+    one-byte status/error code (``0x04``) and have no raw data byte.
+    """
+    if len(payload) < 18:
+        return None
+    if payload[14] != 0x00:
+        return None
+    length = payload[15] | (payload[16] << 8)
+    if length < 1:
+        return None
+    return payload[17]
+
+
 class XkGlassesClient:
     """Client for controlling XK One Pro smart glasses over Bluetooth Classic SPP."""
 
@@ -45,11 +62,15 @@ class XkGlassesClient:
         self.battery_level: Optional[int] = None
         self.is_charging: bool = False
         self.last_photo_count: int = 0
+        # Node 57A0 carries the *video-preview* state (0 = off, 1 = on), not the battery.
+        # The SDK's WmVideoPreview handler reads data[0] for exactly this.
+        self.preview_state: Optional[int] = None
 
         # Event callbacks
         self.on_battery: Optional[Callable[[int, bool], None]] = None
         self.on_voice_button: Optional[Callable[[], None]] = None
         self.on_photo_push: Optional[Callable[[int], None]] = None
+        self.on_preview_state: Optional[Callable[[int], None]] = None
 
     def _next_order(self, step: int = 2) -> int:
         cur = self.pk_counter
@@ -132,20 +153,15 @@ class XkGlassesClient:
                 log.debug("Error parsing 1001 JSON: %s", e)
             return
 
-        # Battery push (node 57A0)
-        if tag == "57A0" and from_device and len(p) >= 18:
-            b16, b17 = p[16], p[17]
-            level = None
-            if b17 in range(0, 101) and b16 in (0, 1):
-                self.is_charging = (b16 == 1)
-                level = b17
-            elif b16 in range(0, 101) and b17 in (0, 1):
-                self.is_charging = (b17 == 1)
-                level = b16
-            if level is not None and 0 <= level <= 100:
-                self.battery_level = level
-                if self.on_battery:
-                    self.on_battery(level, self.is_charging)
+        # Video-preview state (node 57A0). NOT the battery: the vendor SDK's video-preview
+        # handler reads data[0] as the preview state (0 = off, 1 = on). Battery comes from
+        # node 1001 (`battery_main`).
+        if tag == "57A0" and from_device:
+            state = _reply_data_byte(p)
+            if state is not None:
+                self.preview_state = state
+                if self.on_preview_state:
+                    self.on_preview_state(state)
 
     def add_frame_listener(self, listener: Callable[[Frame], None]) -> None:
         with self._lock:

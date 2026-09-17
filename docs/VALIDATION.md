@@ -102,11 +102,12 @@ rules out "first bind wins" and per-bond registration.
 ## 5. Observed response semantics
 
 * `action = 0x8002` — response to a query (`7100`, `1001`, `5713`, ...).
-* `action = 0x8001` — unsolicited indication (`57B1`, `7320`, `C101`, `57A0`, ...).
+* `action = 0x8001` — unsolicited indication (`57B1`, `7320`, `C101`, ...).
 * `action = 0x8004` — ACK.
 * ACKs reference the **received** `cmd_order`; TX and RX counters are independent.
 * `1001` returns a JSON blob with `battery_main`, `dev_id`, `dev_name`, `mac_addr`, `soft_ver`,
   `screen`, `preview_width/height`.
+* `57A0` returns the **video-preview state**, not a battery level (see §10).
 
 ---
 
@@ -126,7 +127,8 @@ into the reserved envelope bytes `[14:16]`. Both are corrected in the SDK update
 * Behaviour on other firmware versions or hardware revisions.
 * Whether a `userId` issued for a *different* vendor account is accepted (no second valid sample).
 * The exact cryptographic construction of the `userId`.
-* Battery `57A0`/`57A1` semantics and charging transitions (no charge/discharge test performed).
+* Battery `57A0`/`57A1` semantics and charging transitions — see §10: `57A0` is the video-preview
+  state, and **no** charging flag was found in the protocol.
 * A resolution-selection command (none found).
 * Long-run keepalive/timeout behaviour.
 
@@ -263,3 +265,71 @@ Nodes from the vendor table that were **probed on hardware but produced no match
 
 The watch-only nodes (`2100`–`5410`, `A000`) were **not** probed; none of them ever appeared in
 any capture. They are classified from the SDK's entity types only.
+
+---
+
+## 10. Live re-validation and `57A0` correction
+
+The unit was re-paired to the host and the full flow re-run end to end.
+
+### End-to-end still works
+
+`python -m xkglasses.cli --mac … capture` → **75 061 bytes**, valid JPEG, 640×480, 3 components.
+`… battery` → **100 %**.
+
+### Device info (`1001`), live
+
+```json
+{"prod_mode":"E13C-1","soft_ver":"1.0.2","mac_addr":"FA:00:11:12:F7:73",
+ "dev_id":"TBZNDZAIEYE-W20-------E13C1-----------FA001112F773896775--------",
+ "dev_name":"xk one Pro_F773","prod_category":"01","prod_subcate":"01",
+ "battery_main":"100","dial_ability":"2","screen":"w320h380",
+ "ch":"304","cw":"320","nch":"304","ncw":"320","screen_shape":"0",
+ "preview_width":"160","preview_height":"120","offline_asr_auth":"1"}
+```
+
+Two things worth noting: the `dev_id` embeds **`W20`** (the sibling W20 family this firmware is
+derived from), and the advertised preview is **160×120** while the transferred JPEG is
+**640×480** (4× the preview in each axis).
+
+### Other node reads
+
+| Node | Reply | Reading |
+|---|---|---|
+| `1017` | `[type=0x00][len=4][1f 00 00 00]` | settings bitmask = `0x0000001f` (bits 0–4 set) |
+| `5712` | `{"total_memory":665338288,"remain_memory":665338288}` | ~634 MB, nothing stored |
+| `5713` | `{"photo_num":"0","video_num":"0","record_num":"0","music_num":"0"}` | no stored media |
+| `C101` `C104` `C107` `C109` `C10A` | `[type=0x04][len=1][0x04]` | identical no-op status — camera-control nodes are not implemented |
+| `57A0` | `[type=0x00][len=1][0x00]` | video-preview state = off (see below) |
+
+The identical `0x04` status from all five `C10x` nodes (and the same value for `1004`) confirms
+they are recognised-but-unimplemented: the firmware answers a fixed status instead of data.
+
+### Correction: `57A0` is the video-preview state, not the battery
+
+Earlier notes (and `client.py`) treated `57A0` as a battery push. That is wrong.
+
+* **SDK evidence**: `Wlc` extends `AbVideoPreview`. Its `57A0` builder (`w()`) is called from the
+  handler that logs *"App get video preview 事件"*, and the reply parser reads `NodeData.data[0]`
+  as the preview state, logging *"device video preview state"*.
+* **Live evidence**: while `1001` reported `battery_main = 100`, the `57A0` reply data byte was
+  `0x00` — parsing it as a level yields `0 %` on a full battery.
+
+Fix applied: `client.py` no longer derives battery from `57A0`; it exposes the preview state via
+`preview_state` / `on_preview_state`, and battery comes from `1001` only. Regression test:
+`test_57a0_does_not_overwrite_battery`.
+
+### Reply layout (re-confirmed)
+
+For a `0x30` reply, after the 4-char node at `payload[10:14]`:
+
+```
+[type:1] [len:2 LE] [data: len bytes]
+```
+
+`type = 0x00` raw data, `0x02` JSON, `0x04` one-byte status/error. This was verified against
+`1001` (type `0x02`, len `0x019b` = 411), `5712` (len 52), `5713` (len 66), `1017` (type `0x00`,
+len 4) and the `C10x` no-ops (type `0x04`, len 1).
+
+> `len` is little-endian. The previous note in §5 that read "`1001` returns a 410-byte JSON" should
+> read **411**.

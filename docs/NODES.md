@@ -71,7 +71,7 @@ See [VALIDATION.md](VALIDATION.md) for the raw experiments behind the ✅ entrie
 | `7110` | Device capabilities |
 | `1003` | Firmware (10-byte data block) |
 | `5712` | **Memory info** — JSON `{"total_memory":N,"remain_memory":N}` |
-| `57A0` | Battery / power indication (`action 0x8001`) |
+| `57A0` | **Video-preview state** — empty-payload query; reply `data[0]` = state (0 = off, 1 = on). Not battery (see §3 note) |
 | `5770` | Storage capacity |
 | `5780` | Answers with a short status block (`…0401 0003`); likely unsupported |
 | `1004` | Answers with a short status block (`…0401 0004`) |
