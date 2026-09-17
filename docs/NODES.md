@@ -81,6 +81,7 @@ See [VALIDATION.md](VALIDATION.md) for the raw experiments behind the ✅ entrie
 | `2410` / `2420` | Preview parameters |
 | `2B` custom | `FGS`, `FND`, `F0600100`, `F0600300` — all optional |
 | `C101` | Touch / voice button event |
+| `5710` | **Video-preview open/close** (`toggleVideoPreview`); replies with the `0x04` no-op status — preview is **not implemented** on this unit (see [VALIDATION.md](VALIDATION.md) §9) |
 | `5760` | Emitted by the device **after** an image transfer completes (`7500`); not present in the vendor SDK's node table |
 
 ### Physical button gestures (observed on hardware)
@@ -120,7 +121,8 @@ See [VALIDATION.md](VALIDATION.md) for the raw experiments behind the ✅ entrie
 | `1007` | Date-time sync (`WmDateTime`) |
 | `1008` | SDK settings (`SJUniWatch`) |
 | `102A`, `102C`, `5610`, `5620` | Video control / frame info (`WmVideoFrameInfo`) |
-| `5710`, `5711`, `5720`, `5750` | Media / camera module (`WmVideoFrameInfo`) |
+| `5710` | Video-preview open/close (`toggleVideoPreview`) — not implemented |
+| `5711`, `5720`, `5750` | Media / camera module (`WmVideoFrameInfo`) |
 | `7200`, `7300`, `7310`, `7400`, `7500`, `7600` | Image / video transfer (`WmVideoFrameInfo`) |
 | `9000`, `9001` | Media transfer control |
 | `3300` | Watch dials (`WmDial`) — same builder as the watch-only `3100`/`3200` |
@@ -179,7 +181,7 @@ None of these nodes was ever sent by the glasses or answered a query. They are c
 watch-only from the entity types their builder classes reference, not from hardware probing.
 
 > **Also in the SDK frame set but silent on the glasses** (probed with no matching reply):
-> `3300`, `4700`, `5500`, `1008`, `1030`–`1032`, `5610`, `5620`, `5710`, `5711`, `5720`, `5750`,
+> `3300`, `4700`, `5500`, `1008`, `1030`–`1032`, `5610`, `5620`, `5711`, `5720`, `5750`,
 > `7200`, `7310`, `7400`, `7600`, `9000`, `C101`, `C104`.
 
 > **Shared with the glasses** (present in the captured working session, so *not* watch-only):

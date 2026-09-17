@@ -184,6 +184,12 @@ Evidence gathered:
   `video_num` / `record_num`.
 * **Commands**: `102A` and `102C` were sent (with and without arguments, `action` 2/3, minimal and
   full setup). The device only ACKs them; no frames are emitted.
+* **Video-preview open/close (`5710`)**: the SDK's `toggleVideoPreview(boolean)` maps to `5710`
+  ("App 发起5710 video preview 事件", open/close). Both `arg = 0x01` (open) and `arg = 0x00`
+  (close) were sent live and the device replied with the generic **no-op status**
+  (`[type=0x04][len=1][0x04]`), the same reply the unimplemented `C10x` camera-control nodes give.
+  No `divideType == 5` frames arrived in 15–20 s of listening on either attempt. The glasses do
+  **not** implement video preview over SPP.
 * **Gestures**: with an active SPP session, a 2-press gesture (video per the sibling W600 manual)
   produced **no** stored media — `5713` stayed at `video_num = 0`, `record_num = 0`, and
   `5712` reported `remain_memory == total_memory` (nothing written).
