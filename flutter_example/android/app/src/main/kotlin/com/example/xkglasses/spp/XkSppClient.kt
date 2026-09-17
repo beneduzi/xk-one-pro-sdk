@@ -53,12 +53,13 @@ class XkSppClient(private val device: BluetoothDevice) {
         Thread {
             try {
                 var s: BluetoothSocket? = null
-                runCatching {
-                    val method = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                    s = method.invoke(device, 8) as BluetoothSocket
-                }
+                // Prefer the secure SPP socket; fall back to the reflected channel-8 socket.
+                runCatching { s = device.createRfcommSocketToServiceRecord(SPP_UUID) }
                 if (s == null) {
-                    s = device.createRfcommSocketToServiceRecord(SPP_UUID)
+                    runCatching {
+                        val method = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                        s = method.invoke(device, 8) as BluetoothSocket
+                    }
                 }
                 socket = s
                 s!!.connect()

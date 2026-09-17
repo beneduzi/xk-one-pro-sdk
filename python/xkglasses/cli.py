@@ -50,7 +50,10 @@ def main():
                 sys.exit(1)
 
         elif args.action == "download":
-            cnt = client.photo_count() or 6
+            cnt = client.photo_count()
+            if cnt <= 0:
+                print("Could not determine element count.", file=sys.stderr)
+                sys.exit(1)
             print(f"Downloading {cnt} elements...")
             res = client.download_photo(count=cnt, out_path=args.out)
             if res:

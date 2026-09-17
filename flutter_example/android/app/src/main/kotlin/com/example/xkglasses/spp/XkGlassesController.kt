@@ -226,7 +226,7 @@ class XkGlassesController(private val device: BluetoothDevice, private val cache
                 charging = (b17 == 1)
                 level = b16
             }
-            if (level != null && level > 0) {
+            if (level != null && level in 0..100) {
                 batteryListener?.invoke(level, charging)
             }
         }
@@ -234,12 +234,13 @@ class XkGlassesController(private val device: BluetoothDevice, private val cache
 
     fun queryBattery() = runCatching {
         synchronized(photoLock) {
+            val order = nextOrder()
+            val reqId = nextOrder(1)
             val req = XkFrame.createControl(
-                cmdOrder = nextOrder(),
+                cmdOrder = order,
                 commandNode = "1001",
                 actionType = 1,
-                requestId = nextOrder(1),
-                argument = byteArrayOf(0)
+                requestId = reqId
             )
             client.send(req)
         }

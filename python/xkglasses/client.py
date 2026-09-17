@@ -44,7 +44,7 @@ class XkGlassesClient:
         self.pk_counter = 0x8E
         self.battery_level: Optional[int] = None
         self.is_charging: bool = False
-        self.last_photo_count: int = 6
+        self.last_photo_count: int = 0
 
         # Event callbacks
         self.on_battery: Optional[Callable[[int, bool], None]] = None
@@ -142,7 +142,7 @@ class XkGlassesClient:
             elif b16 in range(0, 101) and b17 in (0, 1):
                 self.is_charging = (b17 == 1)
                 level = b16
-            if level is not None and level > 0:
+            if level is not None and 0 <= level <= 100:
                 self.battery_level = level
                 if self.on_battery:
                     self.on_battery(level, self.is_charging)
@@ -157,11 +157,19 @@ class XkGlassesClient:
                 self._frame_listeners.remove(listener)
 
     def send(self, frame: Frame) -> None:
-        if self.sock:
-            self.sock.sendall(frame.encode())
+        if self.sock is None:
+            raise ConnectionError("not connected: call connect() first")
+        self.sock.sendall(frame.encode())
 
     def bind(self) -> bool:
-        """Sends the two-phase random session bind sequence."""
+        """Sends the two-phase random session bind sequence.
+
+        Note: this only confirms the frames were transmitted. The device does not
+        expose an explicit bind-accepted reply, so a returned ``True`` is not proof
+        of authorisation.
+        """
+        if self.sock is None:
+            raise ConnectionError("not connected: call connect() first")
         for i, frame in enumerate(build_bind_frames()):
             self.send(frame)
             time.sleep(0.2)
@@ -171,7 +179,13 @@ class XkGlassesClient:
         return True
 
     def setup(self) -> bool:
-        """Executes the setup sequence to arm camera and services."""
+        """Sends the setup sequence (the mandatory ``102E`` user bind plus queries).
+
+        Note: ``self.bound`` records that the sequence was sent; it is not proof of
+        authorisation. Capture will fail if the device rejects the session.
+        """
+        if self.sock is None:
+            raise ConnectionError("not connected: call connect() first")
         for frame in setup_sequence():
             self.send(frame)
             time.sleep(0.15)
@@ -202,14 +216,13 @@ class XkGlassesClient:
         """Queries the current photo element count."""
         count_event = threading.Event()
         result = [self.last_photo_count]
-
         def listener(f: Frame) -> None:
             if f.payload[10:14] == b"7320" and (f.cmd & 0x8000) != 0:
                 p = f.payload
                 count = (
                     ((p[16] << 8) | p[17])
                     if len(p) >= 18
-                    else (p[-1] if len(p) > 0 else 6)
+                    else (p[-1] if len(p) > 0 else 0)
                 )
                 if 1 <= count <= 20:
                     result[0] = count
@@ -234,23 +247,34 @@ class XkGlassesClient:
 
         def arm_listener(f: Frame) -> None:
             tag = f.payload[10:14] if len(f.payload) >= 14 else b""
-            if tag in (b"57B1", b"7320") and (f.cmd & 0x8000) != 0:
+            # 7320 carries the element count. 57B1 alone does not, so waiting on it
+            # would race ahead of the count.
+            if tag == b"7320" and (f.cmd & 0x8000) != 0:
                 ready_event.set()
 
         self.add_frame_listener(arm_listener)
         try:
             self.send(build_57b0(cmd_order=0x24))
-            ready_event.wait(timeout=5.0)
+            if not ready_event.wait(timeout=8.0):
+                log.error("No 7320 element count received after capture trigger")
+                return None
         finally:
             self.remove_frame_listener(arm_listener)
 
-        count = self.last_photo_count or 6
+        # The element count is announced by the device (7320). Do not guess it: an
+        # incorrect count produces a corrupt or incomplete image.
+        count = self.last_photo_count
+        if count <= 0:
+            log.error("No 7320 element count received; cannot download")
+            return None
         return self.download_photo(count=count, out_path=out_path, timeout=timeout)
 
     def download_photo(
-        self, count: int = 6, out_path: Optional[str] = None, timeout: float = 20.0
+        self, count: int = 0, out_path: Optional[str] = None, timeout: float = 20.0
     ) -> Optional[bytes]:
         """Downloads elements 1..N and reassembles the full JPEG image."""
+        if count <= 0:
+            raise ValueError("count must be > 0; query the element count first (7320)")
         if not self.bound:
             self.bind()
             self.setup()
@@ -278,7 +302,7 @@ class XkGlassesClient:
                         needs_ack = reassembler.feed_image_frame(f)
                         if needs_ack:
                             self.send(build_4a0009(tx + 2))
-                        if f.divide_type in (0, 3):
+                        if (f.divide_type & 0x07) in (0, 3):
                             element_done_event.set()
                     except Exception as e:
                         log.error("Image frame processing error: %s", e)
