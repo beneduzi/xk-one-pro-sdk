@@ -1,5 +1,11 @@
 # Android & Kotlin Integration Guide
 
+> **Scope note.** This document describes the architecture of an **external** production
+> application (`vision-assistant-ondevice`) that embeds this protocol. That application is *not*
+> part of this repository. The reference Kotlin stack shipped here lives in
+> [`flutter_example/android/.../spp/`](../flutter_example/) and uses different MethodChannel names
+> and a smaller API surface. Do not assume the two are interchangeable.
+
 This guide documents the native Android / Kotlin architecture implemented in the production `vision-assistant-ondevice` application.
 
 ---

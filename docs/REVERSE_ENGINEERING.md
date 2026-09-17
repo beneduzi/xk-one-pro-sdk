@@ -24,16 +24,22 @@ Key finding:
 
 ---
 
-## 3. The `0401` Arming Sequence Discovery
+## 3. The `0401` Error and What Actually Arms the Camera
 
-Initial attempts to send standalone photo requests resulted in immediate rejection with status code `0x0401`. 
+Initial attempts to send standalone photo requests were rejected with status code `0x0401`.
 
-By comparing traffic traces before and after camera activation, we discovered that the firmware enforces a strict subsystem arming sequence:
-1. Two-phase session bind (`0001` with a 61-character alphanumeric token, followed by `0002` with binary payload).
-2. A required setup sequence consisting of status queries (`7100`, `7110`), user ID registration (`102E`), custom subsystem initializers (`2B0004` `FGS` and `FND`), and preview capabilities (`2410`, `2420`, `C10A`, `C104`, `57A0`, `5770`, `5713`, `57B0`).
-3. Interleaving `300004` ACK/poll frames during setup.
+Early analysis attributed this to the session bind (a "random blob gets rejected") and described a
+long mandatory "arming sequence". **Controlled hardware testing later disproved both:**
 
-Once this sequence was replayed, all subsequent command responses returned success status `0x0001` / `0x0000`.
+* The session bind (`0001`/`0002`) payload content is **not** validated — fully random tokens and
+  blobs are accepted repeatedly.
+* The long setup sequence is **not** mandatory. A minimal session of `0001` + `0002` + `102E` is
+  sufficient to arm the camera and capture a photo; every other setup frame can be omitted.
+* The real requirement is the **`102E` user bind**, which carries a fixed 32-hex `userId` that the
+  firmware validates offline. An invalid `userId`, or a wrong payload length field
+  (`len != len(rest) - 1`), is what produces `0x0401` or a dropped link.
+
+See [BONDED_ENROLLMENT.md](BONDED_ENROLLMENT.md) and [VALIDATION.md](VALIDATION.md).
 
 ---
 
@@ -64,5 +70,12 @@ Careful binary differential analysis revealed that the protocol uses **two disti
 
 ## 6. Summary of Deliverables
 
-* **Python SDK (`xkglasses`)**: Clean, standalone, cross-platform client with two-layer `XkImageReassembler`, `XkGlassesClient`, CLI, and unit test suite.
-* **Production Kotlin Architecture**: Integrated into the on-device AI vision assistant with real-time YOLO object detection, face recognition, and TTS feedback.
+* **Python SDK (`xkglasses`)**: standalone client with the two-layer `XkImageReassembler`,
+  `XkGlassesClient`, CLI, and a unit test suite.
+* **Kotlin/Android SPP stack**: reference implementation of the envelope codec, session templates,
+  two-layer reassembly and controller, exercised against real hardware.
+* **Protocol documentation** distinguishing observed behaviour from inference
+  ([PROTOCOL.md](PROTOCOL.md)) and the raw physical evidence ([VALIDATION.md](VALIDATION.md)).
+
+> Note: an earlier revision of this document referenced a separate "production" application
+> (YOLO detection, face recognition, TTS) that is **not** part of this repository.

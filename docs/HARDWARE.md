@@ -11,7 +11,14 @@ Detailed hardware observations and Bluetooth profile configuration for the Shenj
 * **Manufacturer**: `shenju`
 * **Hardware Model**: `w20`
 * **Firmware Version**: `1.0.1` / `1.0.2`
-* **Camera Module**: Embedded CMOS camera with on-board JPEG encoder (output resolution ~1920x1080 / ~2.2 MB JPEG).
+* **Camera Module**: Embedded CMOS camera with on-board JPEG encoder.
+  * **Observed on the SPP transfer path**: a **640x480 JPEG of ~75 KB** (verified with a real
+    decoder). Vendor marketing lists 1080P/8MP, but that was not observed here.
+  * `C104` does **not** change the capture resolution (omitting it changes nothing). No
+    resolution-selection command has been identified; treat resolution as firmware-fixed.
+* **Device identity (from the `1001` JSON response)**: the glasses report `dev_name`
+  (`xk one Pro_XXXX`), `mac_addr`, `soft_ver`, a composite `dev_id`, `screen` (`w320h380`) and
+  preview dimensions (`160x120`).
 * **Audio**: Dual stereo temple speakers + embedded microphone array.
 * **Physical Controls**:
   * Physical camera trigger button (top right temple).

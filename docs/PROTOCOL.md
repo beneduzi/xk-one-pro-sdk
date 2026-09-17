@@ -22,7 +22,7 @@ All communication packets use a standard 16-byte envelope header:
 | `6..7` | 2 | `payload_len` | `uint16` (LE) | Size of payload data following offset 15 |
 | `8..11` | 4 | `offset` | `uint32` (LE) | Reserved / packet offset (usually `0x00000000`) |
 | `12..13` | 2 | `crc16` | `uint16` (LE) | CRC-16/CCITT checksum computed over payload bytes only (`[16..16+payload_len]`) |
-| `14..15` | 2 | `request_id` | `uint16` (BE) | Request identifier or reserved (`0x0000`) |
+| `14..15` | 2 | reserved | `uint16` | Reserved; observed as `0x0000`. The control request id lives in the payload, **not** here. |
 | `16..` | $N$ | `payload` | Raw bytes | Packet payload data |
 
 ### CRC Algorithm
@@ -32,6 +32,7 @@ All communication packets use a standard 16-byte envelope header:
 * **Final XOR**: `0x0000`
 * **Data Scope**: Payload bytes only (bytes `16` through `16 + payload_len`). The 16-byte header is excluded from the CRC calculation.
 * **Storage**: Stored in Little-Endian byte order at offsets `12..13`.
+* **Validation scope**: the CRC applies to **every** channel, including image frames (`0x4A`). A parser that skips CRC checks on `0x4A` will silently accept corrupted image data. Note that a mismatching CRC means "discard and resynchronise", not "abort the connection".
 
 ---
 
@@ -40,10 +41,18 @@ All communication packets use a standard 16-byte envelope header:
 Packets on channel `0x30` follow a standardized payload package envelope:
 
 ```
-[pk_id: 2B LE] [FF FF FF FF: 4B] [action_type: 2B LE] [00 01: 2B] [command_node: 4B ASCII] [arg_len: 2B LE] [argument: N bytes]
+[pk_id: 2B LE] [FF FF FF FF: 4B] [action: 2B LE] [00 01: 2B] [command_node: 4B ASCII] [len: 2B LE] [rest]
 ```
 
-* `action_type`:
+* **`len` is not a plain argument length.** It equals `len(rest) - 1`, because the first byte of
+  `rest` is a format/type byte that is **not** counted. Confirmed against captured frames:
+  * `7100` query: `len = 0x0000`, `rest = 00` (1 byte).
+  * `7300` element 1: `... 37333030 0001 0001` → `len = 0x0001`, `rest = 00 01` (index, big-endian).
+  * `102E` bind: `len = 0x0032`, `rest` = 51 bytes (see §3).
+* Sending `len == len(rest)` (off by one) is a **confirmed failure mode**: the firmware answers
+  with a generic 18-byte response and then drops the RFCOMM link.
+
+* `action`:
   * `0x0001`: Direct query / getter (e.g. `1001` battery, `7100` status)
   * `0x0002`: Parameterized request (e.g. `7300` download element by index)
   * `0x0003`: Command execution (e.g. `57B0` capture trigger, `7500` end transfer, `0001`/`0002` bind)
@@ -53,33 +62,61 @@ Packets on channel `0x30` follow a standardized payload package envelope:
 ## 3. Session Lifecycle & Handshake
 
 ### Phase 1: Session Bind (`0001` & `0002`)
-The client initiates the session with a two-step bind:
-1. **Bind 1 (`0001`)**: Node `0001` with a 61-character alphanumeric token prefix:
-   ```
-   [requestId: 1] [FFFFFFFF] [action: 3] [0001] "0001" [len: 62] 0x00 + <61-char alphanumeric token>
-   ```
-2. **Bind 2 (`0002`)**: Node `0002` with 40-byte binary blob.
-3. The client sends a `0004` poll (`300004`) after each bind frame.
+The client opens the session with a two-step bind:
+1. **Bind 1 (`0001`)**: node `0001`, `action = 3`, request id `1`, argument `0x00` + 61-char alphanumeric token.
+2. **Bind 2 (`0002`)**: node `0002`, `action = 3`, request id `4`, argument `0x00` + 64 bytes (observed: 16 ASCII + 32 opaque + 16 ASCII).
 
-### Phase 2: Subsystem Arming Sequence
-Before camera capture or image transfers are permitted, the glasses require an ordered sequence of setup and capability queries. Without this sequence, requests return error status `0x0401`.
+**The payload content of both frames is not validated by the device.** Random tokens and blobs
+were accepted repeatedly in controlled A/B/A testing. These frames establish the SPP session
+context; they are **not** credentials.
 
-The sequence consists of:
-1. `7100` (Device status query)
-2. `102E` (Register user ID: `1f1823e0e2896cdb8012a3ac083a35e6`)
-3. `7110` (Device capability query)
-4. `2B0004` (`F0600100`)
-5. `1001` (Device model and battery info)
-6. `2B0004` (`F0600300`)
-7. `1003` (Firmware version query)
-8. `2B0004` `FGS` (`{"sid":"FGS","data":"{\"msg_type\":\"FGS_MSG_TYPE_START_FGS_REQ\",\"sidver\":1}","ver":1}`)
-9. `2410` & `2420` (Preview parameters)
-10. `2B0004` `FND` (File notification descriptor)
-11. `C10A` & `C104` (Camera control capabilities)
-12. `57A0` (Battery / power state query)
-13. `5770` (Storage capacity query)
-14. `5713` (Photo count query: returns `{"photo_num":"N"}`)
-15. `57B0` (Arm camera preview picture pipeline)
+> The observed frames use `len = 61` (bind 1) and `len = 64` (bind 2), i.e. `len(rest) - 1`.
+> Generating them with `len = len(rest)` (62/65) is a confirmed failure: the device replies with
+> generic 18-byte responses and then drops the link.
+
+### Phase 1b: User Bind (`102E`) — required and validated
+After the session bind, the client must send a **user bind** on node `102E`. This is the only
+mandatory frame: a minimal session of `0001` + `0002` + `102E` is enough to arm the camera.
+
+Payload layout (the `rest` field described in §2):
+```
+[format: 1B = 0x00] [bindType: 1B] [randomCode: 16B] [userIdLen: 1B] [userId: N bytes]
+```
+* `bindType` (enum ordinal): `0 = SCAN_QR`, `1 = DISCOVERY`, `2 = CONNECT_BACK`, `3 = DISCONNECT`,
+  `4 = UNBIND`, `5 = POWEROFF`. The working captured session uses `CONNECT_BACK`.
+* `randomCode` is 16 bytes; the observed working session sends 16 zero bytes.
+* `userId` is a **32-character lowercase hex string** (16 bytes). It is **validated offline by the
+  firmware**: every mutation (single character, upper case, all zeros, random) is rejected, and
+  this holds even on a factory-reset unit. Arbitrary values cannot be synthesised.
+  See [BONDED_ENROLLMENT.md](BONDED_ENROLLMENT.md).
+* `UNBIND` (`bindType = 4`) additionally removes the Bluetooth pairing on the glasses side.
+
+### Phase 2: Optional Setup Queries
+Earlier notes described a long "arming sequence" as mandatory. Ablation testing shows it is
+**not**: with `102E` present, every other frame can be omitted and capture still works. The
+remaining frames are queries/telemetry:
+
+1. `7100` (device status)
+2. `7110` (capabilities)
+3. `1001` (device info JSON, including `battery_main`, `dev_id`, `soft_ver`, `mac_addr`)
+4. `1003` (firmware)
+5. `2410` / `2420` (preview parameters)
+6. `C10A` / `C104` (camera control — `C104` does **not** change capture resolution)
+7. `57A0` / `5770` (battery / storage)
+8. `5713` (photo count)
+9. `2B` custom messages (`F0600100`, `F0600300`, `FGS`, `FND`) — all optional
+
+> `57B0` is **not** part of setup. It triggers the camera shutter; including it in the connect
+> sequence means connecting takes a photo.
+
+### Response action codes
+The `action` field of a device reply distinguishes its kind:
+* `0x8002` — response to a query (e.g. `7100`, `1001`, `5713`).
+* `0x8001` — unsolicited indication / push (e.g. `57B1`, `7320`, `C101`, `57A0`).
+* `0x8004` — ACK (`0004`) for a previously received frame.
+
+`from_device` (`cmd & 0x8000`) only indicates direction; it does **not** distinguish a response
+from a push.
 
 ---
 
@@ -120,6 +157,11 @@ sequenceDiagram
     Glasses-->>App: 0x30 [node: 7500 response]
 ```
 
+> **ACK semantics**: a `0004` ACK must reference the `cmd_order` of the frame that was just
+> received — not the client's own outgoing counter. In captures the two counters differ (e.g. a
+> device frame with order `0x83` is acknowledged by a local `0004` whose payload is `01 83`).
+> Track TX and RX counters independently.
+
 ### Two-Layer Reassembly Specification
 
 Reassembling a valid JPEG requires operating across both layers:
@@ -151,11 +193,20 @@ Reassembling a valid JPEG requires operating across both layers:
 Battery level can be determined through two methods:
 
 ### Method A: Active Query (`1001`)
-* App sends control frame with node `1001`, `action_type = 1`, and argument `[0x00]`.
-* Glasses reply with a JSON object payload containing `"battery_main"` (e.g. `{"battery_main":"85", "version":"1.0.1"}`).
+* App sends control frame with node `1001`, `action = 1`, and argument `[0x00]`.
+* The glasses reply with a JSON payload. Observed live example (abridged):
+
+```json
+{"prod_mode":"E13C-1","soft_ver":"1.0.2","mac_addr":"FA:00:11:12:F7:73",
+ "dev_id":"...","dev_name":"xk one Pro_F773","battery_main":"95",
+ "screen":"w320h380","preview_width":"160","preview_height":"120","offline_asr_auth":"1"}
+```
 
 ### Method B: Unsolicited Battery Push (`57A0`)
-* Glasses spontaneously push a `57A0` frame when battery level changes or charging starts/stops.
+* The glasses may push a `57A0` frame (`action = 0x8001`) when the battery state changes.
+* The byte-level interpretation below is a **hypothesis**, not a verified specification. A
+  physical charge/discharge test has not been completed. Known issue: the current SDK discards a
+  legitimate `0%` reading (`level > 0` check) — this is a bug.
 * Payload byte offsets `16..17`:
   * If byte 16 is `0` or `1` (charging status) and byte 17 is `0..100` (level %): `charging = (b16 == 1)`, `level = b17`.
   * If byte 17 is `0` or `1` (charging status) and byte 16 is `0..100` (level %): `charging = (b17 == 1)`, `level = b16`.
@@ -173,5 +224,50 @@ When the user taps the side touch panel or clicks the physical button:
 
 ## 7. Keepalive & Timeout Rules
 
-* If the SPP connection remains idle for > 60 seconds, the glasses firmware drops the RFCOMM connection.
-* Send `0004` keepalive frames (`300004`) every 3–5 seconds during idle periods.
+> The rules below were carried over from early notes and have **not** been independently
+> verified in the controlled tests. Treat them as operational guidance, not firmware behaviour.
+
+* If the SPP connection remains idle for a long period, the glasses may drop the RFCOMM link.
+* Sending `0004` frames (`300004`) during idle periods keeps the link alive.
+
+---
+
+## 8. Command Inventory & Settings
+
+`RequestType` values used in the control `action` field: `1 = READ`, `2 = WRITE`,
+`3 = EXECUTE`, `4 = NOTIFY`.
+
+### Settings (`1017`)
+
+* **Read**: `1017`, `action = 1`, empty data. The device returns a 4-byte bitmask
+  (observed `1f 00 00 00` on the validated unit).
+* **Write**: `1017`, `action = 2`, data `[sub_id:1][value:1]`.
+
+| sub_id | Setting |
+|:---:|---|
+| 0 | ringtone enabled |
+| 1 | notification haptic |
+| 2 | crown haptic |
+| 3 | system haptic |
+| 4 | wrist-raise screen wake (watch only) |
+| 5 | muted |
+
+> The write was ACKed by the device but did not change the observed bitmask, and did not silence
+> the device voice prompts. See [VALIDATION.md](VALIDATION.md) §8.
+
+### Known nodes
+
+Recovered from the vendor SDK. That SDK is shared with smartwatch products, so not every node
+applies to the glasses:
+
+```
+0001 0002 1001 1003 1004 1007 1008 1017 102A 102C 102E 1030 1031 1032
+3300 4700 5500 5610 5620 5710 5711 5712 5713 5720 5750 5770 5780 57A0 57B0
+7200 7300 7310 7400 7500 7600 9000 9001 A001 B001 B002 B003 B004 C109
+```
+
+### Resolution
+
+No resolution/quality command exists in the SDK, `C104` has no effect, and the settings do not
+expose one. The transferred JPEG is 640x480 on the validated unit; resolution is treated as
+**firmware-fixed**.

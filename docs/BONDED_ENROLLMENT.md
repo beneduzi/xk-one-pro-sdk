@@ -1,88 +1,163 @@
-# Bonded Phone Enrollment & Authentication Specification
+# Session Bind, User Enrollment & Authentication
 
-Technical reference on how the XK One Pro / LensMoo smart glasses handle client authentication, the difference between unbonded and bonded Bluetooth connections, and the resolution of the `0x0401` session authorization error.
+Technical reference on how the XK One Pro / LensMoo smart glasses authenticate a client, what is
+actually validated, and what was disproved by controlled hardware testing.
 
----
-
-## 1. Executive Summary
-
-During initial reverse engineering, connections from bonded Android devices were rejected with error status `0x0401` on every query, causing the glasses to terminate the RFCOMM connection within ~6–8 seconds.
-
-The root cause and solution are established:
-1. **Bond State Dependency**: The glasses firmware checks the Bluetooth link bond state.
-2. **Socket Security**: On bonded Android devices, the connection must use an encrypted RFCOMM socket (via `createRfcommSocketToServiceRecord(SPP_UUID)` with fallback to `createRfcommSocket(8)`).
-3. **Session Handshake**: The two-step bind sequence (`0001` and `0002`) establishes the session context using randomly generated in-memory tokens.
-4. **Subsystem Arming**: The subsequent setup sequence (registering a session identifier, queries `7100`, `7110`, `1001`, `1003`, `2410`, `2420`, `C10A`, `C104`, `57A0`, `5770`, `5713`, `57B0` and interleaving `300004` ACKs) completes authorization, enabling all camera and data services without cloud verification.
+> This document replaces an earlier version that attributed the `0x0401` error to a random bind
+> blob. That explanation was **incorrect**. See [VALIDATION.md](VALIDATION.md) for the raw
+> experiments.
 
 ---
 
-## 2. Connection Matrix
+## 1. Executive summary
 
-| Platform / Client | Bond State | Socket Type | Bind Payload | Session Authorization |
-|---|---|---|---|---|
-| **Linux PC / BlueZ** | Unbonded / Bonded | RFCOMM Channel 8 | Standard Random Bind (`0001` + `0002`) | **SUCCESS** (`BOUND` state active, camera commands armed) |
-| **Android (Production)** | Bonded (OS Settings) | Secure SPP Channel 8 | Standard Random Bind (`0001` + `0002`) | **SUCCESS** (`BOUND` state active, camera commands armed) |
-| **Android (Incomplete Setup)**| Bonded | Any | Missing Setup Sequence | **REJECTED (`0x0401`)** (commands rejected until setup sequence completes) |
+There are **two different operations** that are easy to conflate:
 
----
+| Operation | Frame | Validated? | Purpose |
+|---|---|:---:|---|
+| **Session bind** | `0001` + `0002` | **No** | Establishes the SPP session context |
+| **User bind** | `102E` | **Yes** | Associates a user id with the device; arms the camera pipeline |
 
-## 3. The Bind Handshake Wire Format
-
-The session bind consists of two consecutive control frames sent over Channel 8 (`0x30`):
-
-### Frame 1: Bind Token (`0001`)
-* **Channel**: `0x30` (Control)
-* **Command Node**: `"0001"` (ASCII)
-* **Action Type**: `0x0003` (Execute)
-* **Request ID**: `0x0001`
-* **Argument**: `0x00` byte followed by a randomly generated 61-character alphanumeric token.
-
-### Frame 2: Bind Data (`0002`)
-* **Channel**: `0x30` (Control)
-* **Command Node**: `"0002"` (ASCII)
-* **Action Type**: `0x0003` (Execute)
-* **Request ID**: `0x0004`
-* **Argument**: `0x00` byte followed by a 40-byte random binary blob.
-
-After each bind frame, the client sends a `0004` ACK/poll frame (`300004`).
+1. The session bind token/blob may be **random** — the device does not validate their content.
+2. The `102E` **user bind is mandatory** and carries a **fixed, family-wide `userId`** (32 hex
+   characters) that the firmware validates **offline**.
+3. The glasses never contact a server during normal operation. The `userId` is not a cloud token
+   at runtime, but it is a fixed value that must be provisioned.
+4. A valid `userId` **cannot be synthesised locally**. Arbitrary values are rejected — including on
+   a factory-reset unit and across every `bindType`.
 
 ---
 
-## 4. Socket Requirements on Android
+## 2. Session bind (`0001` / `0002`) — not validated
 
-Android Bluetooth stacks behave differently when a device is bonded:
+The session bind is a two-step exchange sent immediately after the RFCOMM link is up:
 
-1. **Secure SPP Socket (Primary)**:
-   ```kotlin
-   val socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
-   socket.connect()
-   ```
-   * `SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")`
+* **Bind 1 (`0001`)**: `action = 3`, request id `1`, argument `0x00` + 61-char alphanumeric token.
+* **Bind 2 (`0002`)**: `action = 3`, request id `4`, argument `0x00` + 64 bytes.
 
-2. **Channel 8 Reflection (Fallback)**:
-   ```kotlin
-   val method = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-   val socket = method.invoke(device, 8) as BluetoothSocket
-   socket.connect()
-   ```
+Controlled A/B/A tests (baseline → one mutation → baseline) show the device accepts:
 
-*Connecting over an insecure socket when the device is bonded causes link drops. Always use the secure path.*
+* a fully random bind-1 token;
+* a fully random bind-2 payload;
+* a randomised 32-byte middle block;
+* non-zero reserved bytes in the envelope (`[14:16]`).
 
----
+The **only** thing that must be byte-exact is the payload length field: `len = len(rest) - 1`
+(see [PROTOCOL.md](PROTOCOL.md) §2). Writing `len == len(rest)` causes the device to answer with
+a generic 18-byte response and then drop the link.
 
-## 5. Privacy & Zero Cloud Dependency
-
-* **100% Offline**: The Bluetooth SPP communication is strictly peer-to-peer between the client device (phone or PC) and the smart glasses.
-* **No Account or Credentials**: The setup sequence uses arbitrary, locally generated identifiers (`userId`). No user accounts, passwords, API secrets, or vendor cloud servers are ever involved.
+> A previous version of the SDK used `len == len(argument)` and therefore could not complete a
+> session. This is the actual root cause of the SDK's `Transport endpoint is not connected`
+> failure against real hardware.
 
 ---
 
-## 6. Implementation Summary
+## 3. User bind (`102E`) — required and validated
 
-To ensure 100% reliable connection on Android and Linux:
-1. Connect to RFCOMM Channel 8 using a secure socket.
-2. Send `XkSessionTemplates.bindSequence()` with a 200ms delay between frames.
-3. Wait 1.5 seconds, then send `XkSessionTemplates.setupSequence()` with a 150ms delay between frames.
-4. Mark the state as `BOUND`. The camera pipeline is now armed for captures (`57B0`) and photo downloads (`7300`).
+Node `102E` is the bind/unbind command. Payload (the `rest` field):
 
-*For details on the image transfer protocol and two-layer JPEG reassembly, see [PROTOCOL.md](PROTOCOL.md).*
+```
+[format: 1B = 0x00] [bindType: 1B] [randomCode: 16B] [userIdLen: 1B] [userId: N bytes]
+```
+
+`bindType` is an enum ordinal:
+
+| Value | Name | Meaning |
+|:---:|---|---|
+| 0 | `SCAN_QR` | Bind by scanning a QR code |
+| 1 | `DISCOVERY` | Bind by discovery |
+| 2 | `CONNECT_BACK` | Reconnect to a previously bound user (used by the captured session) |
+| 3 | `DISCONNECT` | Disconnect |
+| 4 | `UNBIND` | Unbind — **also removes the Bluetooth pairing on the glasses** |
+| 5 | `POWEROFF` | Power off |
+
+* `randomCode` is 16 bytes; the captured working session sends 16 zero bytes.
+* `userId` is 32 lowercase hex characters (16 bytes).
+* A minimal session of `0001` + `0002` + `102E` is sufficient: all other setup frames are optional
+  (verified by ablation).
+
+---
+
+## 4. Where the `userId` comes from
+
+Analysis of the vendor application (`com.lensmoo.app`) shows:
+
+* The bind frame builder reads the value from local storage:
+  `SharedPreferences["device_cache_login_user_id"]`.
+* That value is written by the account/login flow (vendor endpoints `service/user/regiestr` and
+  `service/user/refreshToken`).
+* The app forwards the stored value **verbatim** into the `102E` frame. There is no local hashing
+  or transformation (no `MessageDigest` usage anywhere in the app except file MD5).
+
+So the `userId` originates from the vendor's account service. Once known, it is used **offline**
+and works on any unit of the family.
+
+---
+
+## 5. Can a `userId` be generated? (No)
+
+This was tested exhaustively against real hardware. Every attempt to use a value other than the
+provisioned one failed while the baseline kept succeeding:
+
+| Experiment | Result |
+|---|---|
+| Mutate a single hex character | ❌ rejected |
+| Upper-case the value | ❌ rejected |
+| All zeros | ❌ rejected |
+| Random 128-bit value | ❌ rejected |
+| `bindType = SCAN_QR` + random value | ❌ rejected |
+| `bindType = DISCOVERY` + random value | ❌ rejected |
+| `bindType = CONNECT_BACK` + random value | ❌ rejected |
+| After `UNBIND` | ❌ rejected |
+| After a fresh Bluetooth bond | ❌ rejected |
+| **On a factory-reset (virgin) unit** | ❌ rejected |
+| Checksum / CRC / MAC structure inside the 16 bytes | ❌ none found |
+
+**Conclusions:**
+
+* The device does **not** implement "first bind wins" or per-bond registration: a virgin device
+  still rejects arbitrary values.
+* The check is therefore **intrinsic to the value** — a firmware-side cryptographic validation
+  (signature/MAC) or a firmware whitelist. Either way, only values issued by the vendor's system
+  are accepted.
+* The validation secret is **not** in the Android APK (no local hashing), so it cannot be
+  extracted from the app.
+
+The only remaining route to a *different* value would be dumping the glasses firmware (UART/OTA)
+to recover the validation key — out of scope for this SPP SDK and unnecessary, because the known
+value works offline on every unit.
+
+---
+
+## 6. Transport & socket requirements
+
+* Linux/BlueZ: a plain RFCOMM socket on **channel 8** is sufficient. No special security
+  configuration was required; the link was bonded.
+* Android: the vendor SDK tries secure SPP first, then insecure, then reflected channel-8 sockets.
+  Prefer the secure path first.
+* `UNBIND` (`bindType = 4`) breaks the Bluetooth pairing on the glasses. Re-pairing is required
+  afterwards; the `userId` remains valid.
+
+---
+
+## 7. Privacy & offline operation
+
+Accurate statement of the security posture:
+
+* ✅ The transport and all data transfer are local Bluetooth. No internet access is required.
+* ✅ No account, login, or cloud call is made at runtime.
+* ✅ The session bind parameters are random and are not credentials.
+* ⚠️ There **is** a fixed identifier (`102E` `userId`) required by the firmware. It is shared
+  across units of the family and is validated offline. The earlier claim of "zero proprietary
+  keys" was incorrect.
+* ⚠️ Treat the `userId` as sensitive provisioning material: do not log it, and do not ship it in
+  public fixtures.
+
+---
+
+## 8. Not yet verified
+
+* Whether a `userId` issued by the vendor for a **different account** is accepted (no second valid
+  sample was available).
+* The exact cryptographic construction of the `userId` (signature vs whitelist).
+* Behaviour across different firmware versions.
