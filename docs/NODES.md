@@ -142,7 +142,75 @@ widgets, watch dials, find-device.
 
 ---
 
-## 7. Complete node list recovered from the vendor SDK
+## 8. Capability bitmask (function support)
+
+The `7100`/`7110` replies carry a **128-bit capability mask**. The reply data (after the format
+byte) is laid out as:
+
+```
+[version:1][capability mask: 16 bytes][maxContacts:2][sideButtonCount:1][fixedSportCount:1][variableSportCount:1]
+```
+
+Observed on the validated unit (identical across sessions, so these are static capabilities):
+
+| Node | version | capability mask | maxContacts | sideButtons | fixedSport | varSport |
+|---|---|---|---|---|---|---|
+| `7100` | `0x10` | `ffff4b0a5fa30d040000000000000000` | 100 | 2 | 8 | 12 |
+| `7110` | `0x10` | `37000000000000000000000000000000` | 100 | 2 | 8 | 12 |
+
+`sideButtonCount = 2` matches the glasses' two physical buttons.
+
+### Bit → function map (extracted from the vendor SDK)
+
+| bit | function | bit | function |
+|:---:|---|---|:---:|---|
+| 0 | weather | 32 | step goal |
+| 1 | sport | 33 | calorie goal |
+| 2 | heart rate | 34 | activity-duration goal |
+| 3 | camera control | 35 | sedentary reminder |
+| 4 | notify msg | 36 | drink-water reminder |
+| 5 | alarm | 37 | wash-hands reminder |
+| 6 | transfer music | 38 | auto rate |
+| 7 | contact | 39 | REM |
+| 8 | find device | 40 | multi-sport |
+| 9 | find phone | 41 | show fix motion type |
+| 10 | app view | 42 | sport auto-recognise start |
+| 11 | set ring | 43 | sport auto-recognise end |
+| 12 | set notify touch | 44 | alarm label |
+| 13 | set crown touch | 45 | alarm remark |
+| 14 | set system touch | 46 | world clock |
+| 15 | wrist screen | 47 | app change language |
+| 16 | blood oxygen | 48 | widgets |
+| 17 | blood pressure | 49 | app control volume |
+| 18 | blood sugar | 50 | quiet HR alert |
+| 19 | sleep | 51 | sport HR alert |
+| 20 | transfer ebook | 52 | daily HR alert |
+| 21 | slow mode | 53 | continuous oxygen |
+| 22 | camera preview | 54 | BT disconnect reminder |
+| 23 | video transfer | 55 | BT/BLE same name |
+| 24 | payee code | 56 | event reminder |
+| 25 | dial market | 57 | screen reminder |
+| 26 | unfold notification | 58 | reboot device |
+| 27 | BLE delete | 64 | map navigation |
+| 28 | show BLE-delete switch | 65 | map compass |
+| 29 | emergency contact | 66 | Muslim prayer |
+| 30 | sync collect contact | | |
+| 31 | quick respond | | |
+
+### Glasses-specific capability flags
+
+The vendor SDK also exposes a separate glasses-only structure (`WmGlassesFunctionSupport`) with
+seven flags:
+
+`noStorageDevice`, `supportAiChat`, `supportFunctionVersion`, `supportScoLink`,
+`supportVolcEngine`, `supportWakeWord`, `supportZlsyEngine`.
+
+These map to the voice-assistant features (AI chat, SCO audio link, wake word, and the
+VolcEngine / ZLSY speech engines).
+
+> **Caveat:** the bit *order within each byte* of the mask was not verified against the device
+> (the SDK expands each byte to 8 bits and reverses it, so the LSB-first reading is the most
+> likely). The bit→function mapping itself was extracted directly from the vendor parser.
 
 ```
 0001 0002 1001 1003 1004 1007 1008 1017 102A 102C 102E 1030 1031 1032
