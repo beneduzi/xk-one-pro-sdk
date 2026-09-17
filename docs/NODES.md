@@ -85,8 +85,14 @@ See [VALIDATION.md](VALIDATION.md) for the raw experiments behind the ✅ entrie
 > **Probing notes.** The device answers most nodes **once per session**, and several nodes
 > (`7100`, `7110`, `2410`, `2420`, `C10A`, `57A0`, `5770`) only reply when queried in the
 > context/order of the full setup sequence — a standalone query is ignored. Nodes that require an
-> argument do not answer an argument-less query. A short `…0401 000X` reply is returned for nodes
-> that are recognised but produce no data.
+> argument do not answer an argument-less query.
+>
+> **Reply layout** (bytes after the node in a `0x30` reply): `[type:1][len:2 LE][data]`.
+> `type = 0x02` means data follows (e.g. `1001` returns a 410-byte JSON, `5712` a 52-byte JSON);
+> `type = 0x04` means a one-byte status/error code follows instead of data. Nodes returning
+> `0x04` are recognised by the device but produce no usable data:
+> `1004` (→ `04`), `1007` (→ `04`), `5780` (→ `03`), `9001` (→ `05`), `C107` (→ `04`),
+> `C109` (→ `04`).
 
 ---
 
