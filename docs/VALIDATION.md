@@ -89,7 +89,9 @@ Additional analysis:
   is not extractable from the APK.
 * The vendor app reads the value from
   `SharedPreferences["device_cache_login_user_id"]`, populated by its account service, and
-  forwards it verbatim.
+  forwards it verbatim. That value is the **Lensmoo account id** (`UserInfoBean.id`), used for
+  every bind type including first enrollment — see
+  [BONDED_ENROLLMENT.md](BONDED_ENROLLMENT.md) §4 for the decompiled call path.
 
 **Conclusion:** the firmware validates the value intrinsically (signature/MAC or whitelist).
 Only values issued by the vendor's system are accepted. A virgin device rejecting arbitrary values
