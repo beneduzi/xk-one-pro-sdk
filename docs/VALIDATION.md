@@ -140,13 +140,31 @@ The bundled Flutter example is the reference Android integration (Kotlin SPP sta
 | Widget tests | `flutter test` | ✅ All tests passed |
 | Android build | `flutter build apk --debug` | ✅ `build/app/outputs/flutter-apk/app-debug.apk` |
 | Kotlin unit tests | `./gradlew test` | ✅ `BUILD SUCCESSFUL` (debug/profile/release variants) |
+| Install on device | `adb install -r -t` | ✅ installed on the MI 9 |
+| Launch on device | `monkey … LAUNCHER` | ✅ `MainActivity` focused, no errors in logcat |
 
 Environment: Flutter 3.41.9 stable, Android SDK 35.0.0, Gradle 8.14. `ANDROID_HOME` must point at
 the SDK (e.g. `$HOME/Android/Sdk`); the toolchain otherwise reports a missing `cmdline-tools`.
 
-> The APK was **not** installed on the test device — the MI 9 blocks `adb install` with
-> `INSTALL_FAILED_USER_RESTRICTED` (MIUI). On-device validation of the Flutter UI is still pending;
-> the Python CLI remains the validated control path (see §2–§5).
+### Installing on MIUI
+
+`adb install` on the MI 9 fails with `INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`
+(MIUI's "Install via USB" guard). Disabling the package verifier on the (isolated, test) device
+works around it without any on-device toggle:
+
+```
+adb shell settings put global verifier_verify_adb_installs 0
+adb shell settings put global package_verifier_enable 0
+adb install -r -t <apk>
+```
+
+The package installs as `com.example.xkglasses.flutter_example` and launches with its
+`MainActivity`; the UI renders the connection, capture and status cards as expected.
+
+> **Still pending:** the full end-to-end capture **from the phone**. The example currently reports
+> *"Nenhum dispositivo Bluetooth pareado encontrado"* because the glasses are bonded to the PC, not
+> to the MI 9 — the Python CLI remains the validated control path (see §2–§5). Running the
+> end-to-end flow on the phone requires re-pairing the glasses with the MI 9.
 
 ---
 
