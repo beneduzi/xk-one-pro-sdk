@@ -92,6 +92,38 @@ Analysis of the vendor application (`com.lensmoo.app`) shows:
 So the `userId` originates from the vendor's account service. Once known, it is used **offline**
 and works on any unit of the family.
 
+### Exact call path (decompiled)
+
+The chain is unambiguous, and it is the **same for every bind type** — first-time enrollment
+included:
+
+```
+com.android.mltcode.paycertificationapi.i72.h(...)        # CONNECT_BACK (reconnect), i72.smali:4215
+com.android.mltcode.paycertificationapi.i72.l(...)        # DISCOVERY,     i72.smali:5228
+                                                           # SCAN_QR,       i72.smali:5260
+        └─ a72.a.w()  →  SharedPreferences["device_cache_login_user_id"]
+                          (a72.smali:5412, key declared at a72.smali:155)
+        └─ new WmBindInfo(userId, userName, macAddress, bindType, deviceType, model)
+        └─ l9c.d(WmBindInfo) → 102E payload
+
+write side:
+com.android.mltcode.paycertificationapi.mp9.s(UserInfoBean)   # mp9.smali:936
+        └─ a72.T(userInfoBean.getId())  →  SharedPreferences.put(
+              "device_cache_login_user_id", …)             # a72.smali:1932
+        where userInfoBean is com.sparkpro.data.model.UserInfoBean  (field `id`)
+```
+
+* The value is `com.sparkpro.data.model.UserInfoBean.id` — the **Lensmoo backend account id**,
+  an opaque 32-hex (16-byte) UUID-style string. It is a property of the *account*, not of the
+  glasses: it has no relation to the device MAC, name, or model.
+* `a72.w()` returns the raw string; `l9c.d` writes `getUserId().getBytes(UTF-8)` directly after a
+  1-byte length prefix. Nothing is derived, salted, or signed on the phone.
+
+**Practical consequence:** a valid `userId` can only be obtained by logging into a Lensmoo account
+and reading that account's id — either from the app's `SharedPreferences` on a device where the
+app is installed, or by capturing the official app's own `102E` frame on the SPP link (the route
+used to provision this SDK).
+
 ---
 
 ## 5. Can a `userId` be generated? (No)
@@ -120,6 +152,9 @@ provisioned one failed while the baseline kept succeeding:
 * The check is therefore **intrinsic to the value** — a firmware-side cryptographic validation
   (signature/MAC) or a firmware whitelist. Either way, only values issued by the vendor's system
   are accepted.
+* Because the value is the *account* id (§4), not a device-derived quantity, the most likely model
+  is a **firmware whitelist / account registry**: the unit is provisioned for a specific vendor
+  account, and a "factory reset" performed from the app does not clear that provisioning.
 * The validation secret is **not** in the Android APK (no local hashing), so it cannot be
   extracted from the app.
 
