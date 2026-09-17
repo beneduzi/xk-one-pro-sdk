@@ -104,7 +104,7 @@ remaining frames are queries/telemetry:
 6. `C10A` / `C104` (camera control — `C104` does **not** change capture resolution)
 7. `57A0` (video-preview state) / `5770` (storage)
 8. `5713` (photo count)
-9. `2B` custom messages (`F0600100`, `F0600300`, `FGS`, `FND`) — all optional
+9. `2B` custom messages (`F0600100`, `F0600300`, `FGS`, `FND`) — all optional; see §9
 
 > `57B0` is **not** part of setup. It triggers the camera shutter; including it in the connect
 > sequence means connecting takes a photo.
@@ -235,11 +235,26 @@ When the user taps the side touch panel or clicks the physical button:
 
 ## 7. Keepalive & Timeout Rules
 
-> The rules below were carried over from early notes and have **not** been independently
-> verified in the controlled tests. Treat them as operational guidance, not firmware behaviour.
+**Verified on hardware: no keepalive is required.**
 
-* If the SPP connection remains idle for a long period, the glasses may drop the RFCOMM link.
-* Sending `0004` frames (`300004`) during idle periods keeps the link alive.
+After `bind` + setup, the session was left completely idle — **zero** frames in either direction —
+for **240 s**. At the end of that window the link was still fully functional:
+
+| Probe after 240 s idle | Result |
+|---|---|
+| `1001` device-info query | ✅ answered (`LINK ALIVE`) |
+| `57B0` capture trigger | ✅ `57B1`/`7320` received (`CONTROL PATH ALIVE`) |
+
+There was also **no device-initiated traffic** during the idle window (the last frame before it was
+the final setup reply), so the glasses do not require the host to poll.
+
+* Sending `0004` frames (`300004`) during idle periods is therefore **not necessary**. It remains
+  harmless and may still help on other firmware revisions.
+* The vendor app's own `keepalive` module (`com.starburst.sdk.core.keepalive`) is **Android
+  background-process persistence** (MIUI/Huawei/Vivo autostart helpers, wake locks, alarms) — it has
+  nothing to do with the SPP link.
+* Not characterised: whether the link survives *days* of idleness, and whether the glasses' own
+  auto-power-off (which is independent of the link) intervenes first.
 
 ---
 
@@ -278,3 +293,62 @@ watch-only nodes that the glasses silently ignore.
 No resolution/quality command exists in the SDK, `C104` has no effect, and the settings do not
 expose one. The transferred JPEG is 640x480 on the validated unit; resolution is treated as
 **firmware-fixed**.
+
+---
+
+## 9. The `0x2B` Custom Channel (`FGS` / `FND`)
+
+Frames with `head = 0x2B` are a separate application channel. They are **optional** for photo
+capture (ablation-proven), and they are **not** a media-extraction path — they belong to the
+vendor's voice-assistant subsystem.
+
+### What it is
+
+The handlers live in `com.starburst.sdk.core.auth` (`BtAuthDataHandler`), and the surrounding
+`com.starburst.sdk.core` package is a voice-AI agent stack: `asr`, `tts`, `voicechat`, `opus`,
+`recorder`, `wssmessage`, `multimodal`, `model`, `image`, `feed`. The `0x2B` channel is how the
+phone and glasses negotiate the credentials for that assistant.
+
+`Sid` (the `sid` field) is one of: `CCM`, `FGS`, `FND`, `GTD`, `TKN`.
+
+### FGS — Aliyun IoT device-triple provisioning
+
+`FGSInfoConfig` holds `sProductKey`, `sDeviceName`, `sDeviceSecret`, `sTimeStamp` and `sonce` —
+i.e. an **Alibaba Cloud (Aliyun) IoT device triple** plus a timestamp and nonce. The FGS message
+types are:
+
+| Message type | Purpose |
+|---|---|
+| `FGS_MSG_TYPE_START_FGS_REQ` / `_RESP` | Ask whether the device already holds its triple |
+| `FGS_MSG_TYPE_START_LP_AUTH_REQ` / `_RESP` | Authenticate the link partner |
+| `FGS_MSG_TYPE_DS_DOWNLOAD_REQ` / `_RESP` | Download a data-service payload |
+
+Live exchange on the validated unit:
+
+```
+App  -> {"sid":"FGS","data":"{\"msg_type\":\"FGS_MSG_TYPE_START_FGS_REQ\",\"sidver\":1}","ver":1}
+Glasses -> {"sid":"FGS","data":"{\"msg_type\":\"FGS_MSG_TYPE_START_FGS_RESP\",
+             \"tripplestatus\":\"existtripple\",\"sidver\":1,\"sdk_ver\":\"1.0.0\"}","ver":1}
+```
+
+`"tripplestatus":"existtripple"` means the glasses **already store their IoT triple**, so the app
+skips provisioning and goes straight to auth. The `offline_asr_auth` field in the `1001` JSON is
+the related local flag.
+
+### FND — timestamp carrier
+
+`FND` carries a base64 blob inside the same JSON envelope. The blob decodes to
+`01 0d 00` + an ASCII decimal **microsecond timestamp**:
+
+```
+base64 "AQ0AMTc4OTY3NjIwMjQ3MTQ2NA==" -> 01 0d 00 "1789676202471464"
+```
+
+### Envelope
+
+The `0x2B` payload is `[01][msg_id][order][...][0x41]` followed by the JSON. `msg_id` is `0x08` for
+FGS and `0x09` for FND. `F060…`/`F04F…` frames on the same channel are separate custom
+sub-protocols (not decoded).
+
+> Because `FGS`/`FND` gate the **voice assistant** rather than the camera, a host that only wants
+> photos can omit the whole channel.

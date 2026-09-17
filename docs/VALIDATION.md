@@ -339,3 +339,51 @@ len 4) and the `C10x` no-ops (type `0x04`, len 1).
 
 > `len` is little-endian. The previous note in §5 that read "`1001` returns a 410-byte JSON" should
 > read **411**.
+
+---
+
+## 11. Keepalive, timeout and the `0x2B` custom channel
+
+### No SPP keepalive is required
+
+After `bind` + setup the session was left **completely idle — zero frames in either direction — for
+240 s**, then probed:
+
+| Probe after 240 s of silence | Result |
+|---|---|
+| `1001` device-info query | ✅ answered — link alive |
+| `57B0` capture trigger | ✅ `57B1`/`7320` received — control path alive |
+
+No device-initiated traffic occurred during the idle window either. So the glasses neither require
+nor send a protocol keepalive, and the `0004` "keepalive" frames in the setup template are
+unnecessary. The vendor app's `com.starburst.sdk.core.keepalive` module is unrelated: it is Android
+background-process persistence (MIUI/Huawei/Vivo autostart helpers, wake locks, alarms).
+
+Not characterised: multi-day idleness, and whether the glasses' own auto-power-off (independent of
+the link) intervenes first.
+
+### `0x2B` is the voice-assistant auth channel, not media
+
+Frames with `head = 0x2B` carry `FGS`/`FND` JSON and are handled by
+`com.starburst.sdk.core.auth.BtAuthDataHandler`. The surrounding `com.starburst.sdk.core` package is
+a voice-AI stack (`asr`, `tts`, `voicechat`, `opus`, `recorder`, `wssmessage`, `multimodal`).
+
+`FGSInfoConfig` holds an **Alibaba Cloud (Aliyun) IoT device triple** — `sProductKey`,
+`sDeviceName`, `sDeviceSecret` — plus `sTimeStamp` and `sonce`. `FGS` message types are
+`START_FGS_REQ/RESP`, `START_LP_AUTH_REQ/RESP` and `DS_DOWNLOAD_REQ/RESP`.
+
+Live, fully decoded response:
+
+```json
+{"sid":"FGS","data":"{\"msg_type\":\"FGS_MSG_TYPE_START_FGS_RESP\",
+  \"tripplestatus\":\"existtripple\",\"sidver\":1,\"sdk_ver\":\"1.0.0\"}","ver":1}
+```
+
+`"tripplestatus":"existtripple"` proves the glasses already store their IoT triple. `FND` carries a
+base64 blob decoding to `01 0d 00` + an ASCII microsecond timestamp
+(`"AQ0AMTc4OTY3NjIwMjQ3MTQ2NA=="` → `1789676202471464`). `Sid` values: `CCM`, `FGS`, `FND`, `GTD`,
+`TKN`.
+
+**Consequence:** the whole `0x2B` channel can be omitted by a photo-only host (already established
+by ablation), and it offers no route to stored video/audio — see §9. Full details in
+[PROTOCOL.md](PROTOCOL.md) §9.

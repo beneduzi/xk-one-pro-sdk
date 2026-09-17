@@ -79,7 +79,7 @@ See [VALIDATION.md](VALIDATION.md) for the raw experiments behind the ✅ entrie
 | `C109` | Answers with a short status block (`…0401 0004`) |
 | `C10A` / `C104` | Camera control; `C104` does **not** change resolution |
 | `2410` / `2420` | Preview parameters |
-| `2B` custom | `FGS`, `FND`, `F0600100`, `F0600300` — all optional |
+| `2B` custom | `FGS`, `FND`, `F0600100`, `F0600300` — all optional. `FGS`/`FND` are the **voice-assistant auth** channel (Aliyun IoT triple), not media — see [PROTOCOL.md](PROTOCOL.md) §9 |
 | `C101` | Touch / voice button event |
 | `5710` | **Video-preview open/close** (`toggleVideoPreview`); replies with the `0x04` no-op status — preview is **not implemented** on this unit (see [VALIDATION.md](VALIDATION.md) §9) |
 | `5760` | Emitted by the device **after** an image transfer completes (`7500`); not present in the vendor SDK's node table |
