@@ -81,6 +81,22 @@ See [VALIDATION.md](VALIDATION.md) for the raw experiments behind the ✅ entrie
 | `2410` / `2420` | Preview parameters |
 | `2B` custom | `FGS`, `FND`, `F0600100`, `F0600300` — all optional |
 | `C101` | Touch / voice button event |
+| `5760` | Emitted by the device **after** an image transfer completes (`7500`); not present in the vendor SDK's node table |
+
+### Physical button gestures (observed on hardware)
+
+| Gesture | Action |
+|---|---|
+| **1 click** on the capture button | Photo capture (`57B0` path: `57B1` → `7320` → elements) |
+| **2 clicks** | **Voice recording** (audio memo; counted by `record_num` in `5713`) |
+
+> The glasses require an **active SPP session** for the button to work; otherwise they play a
+> local "please connect to the app" prompt. If the host does not complete the transfer (ACK the
+> `7320` announcement and download the elements), **the glasses stay blocked waiting for the
+> acknowledgement**. A host must therefore always finish (or abort with `7500`) the transfer.
+>
+> Voice recordings and videos are counted by `5713` (`record_num`, `video_num`); the audio
+> subsystem is exposed as `toggleAudio` / `observeAudioState` in the SDK.
 
 > **Probing notes.** The device answers most nodes **once per session**, and several nodes
 > (`7100`, `7110`, `2410`, `2420`, `C10A`, `57A0`, `5770`) only reply when queried in the
