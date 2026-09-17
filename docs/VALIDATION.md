@@ -130,6 +130,26 @@ into the reserved envelope bytes `[14:16]`. Both are corrected in the SDK update
 
 ---
 
+## 8. `flutter_example` builds and tests clean
+
+The bundled Flutter example is the reference Android integration (Kotlin SPP stack + Dart UI).
+
+| Check | Command | Result |
+|---|---|---|
+| Static analysis | `flutter analyze` | ✅ No issues found |
+| Widget tests | `flutter test` | ✅ All tests passed |
+| Android build | `flutter build apk --debug` | ✅ `build/app/outputs/flutter-apk/app-debug.apk` |
+| Kotlin unit tests | `./gradlew test` | ✅ `BUILD SUCCESSFUL` (debug/profile/release variants) |
+
+Environment: Flutter 3.41.9 stable, Android SDK 35.0.0, Gradle 8.14. `ANDROID_HOME` must point at
+the SDK (e.g. `$HOME/Android/Sdk`); the toolchain otherwise reports a missing `cmdline-tools`.
+
+> The APK was **not** installed on the test device — the MI 9 blocks `adb install` with
+> `INSTALL_FAILED_USER_RESTRICTED` (MIUI). On-device validation of the Flutter UI is still pending;
+> the Python CLI remains the validated control path (see §2–§5).
+
+---
+
 ## 9. Video / audio extraction: negative result
 
 Extracting recorded video or audio over the protocol was investigated and **not achieved**.

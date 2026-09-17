@@ -238,7 +238,7 @@ class _GlassesHomeScreenState extends State<GlassesHomeScreen> {
                         )
                       else
                         DropdownButtonFormField<String>(
-                          value: _selectedMac,
+                          initialValue: _selectedMac,
                           decoration: const InputDecoration(
                             labelText: 'Dispositivo Pareado',
                             border: OutlineInputBorder(),
@@ -408,9 +408,21 @@ class _GlassesHomeScreenState extends State<GlassesHomeScreen> {
                       ),
                       Padding(
                         padding: const EdgeInsets.all(12.0),
-                        child: Text(
-                          'Caminho: $_lastPhotoPath',
-                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Caminho: $_lastPhotoPath',
+                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                            if (_galleryUri != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Galeria: $_galleryUri',
+                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ],
