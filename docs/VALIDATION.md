@@ -209,11 +209,17 @@ the speaker. This was **not** verified.
 
 ### Node inventory (from the vendor SDK)
 
-```
-0001 0002 1001 1003 1004 1007 1008 1017 102A 102C 102E 1030 1031 1032
-3300 4700 5500 5610 5620 5710 5711 5712 5713 5720 5750 5770 5780 57A0 57B0
-7200 7300 7310 7400 7500 7600 9000 9001 A001 B001 B002 B003 B004 C109
-```
+The complete inventory is **68 nodes**, enumerated mechanically from the two node builders
+(`l9c.k(BBBB)` and the `l9c.r(...)` default-argument bridge) in the decompiled Lensmoo APK. See
+`docs/NODES.md` §7 for the full table.
 
-Notable mappings: `1004`/`4700` notifications, `1032` memory info, `5770`/`5780` storage,
-`5713` media counts, `57B0` capture, `7300`/`7500` image transfer, `102E` user bind.
+Notable mappings: `1004`/`4700` notifications (both no-ops on the glasses), `5712` memory info,
+`5770`/`5780` storage, `5713` media counts, `57B0` capture, `7300`/`7500` image transfer,
+`102E` user bind.
+
+Nodes from the vendor table that were **probed on hardware but produced no matching reply**:
+`1008` `1030` `1031` `1032` `3300` `4700` `5500` `5610` `5620` `5710` `5711` `5720` `5750` `7200`
+`7310` `7400` `7600` `9000` `A001` `B001`–`B004` `C101` `C104`.
+
+The watch-only nodes (`2100`–`5410`, `A000`) were **not** probed; none of them ever appeared in
+any capture. They are classified from the SDK's entity types only.

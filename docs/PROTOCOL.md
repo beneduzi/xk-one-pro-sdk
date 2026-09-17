@@ -258,13 +258,9 @@ When the user taps the side touch panel or clicks the physical button:
 ### Known nodes
 
 Recovered from the vendor SDK. That SDK is shared with smartwatch products, so not every node
-applies to the glasses:
-
-```
-0001 0002 1001 1003 1004 1007 1008 1017 102A 102C 102E 1030 1031 1032
-3300 4700 5500 5610 5620 5710 5711 5712 5713 5720 5750 5770 5780 57A0 57B0
-7200 7300 7310 7400 7500 7600 9000 9001 A001 B001 B002 B003 B004 C109
-```
+applies to the glasses. The complete inventory is **68 nodes** (42 direct + 26 bridge); see
+[NODES.md](NODES.md) §7 for the full table with builder class and scope, and §5 for the
+watch-only nodes that the glasses silently ignore.
 
 ### Resolution
 

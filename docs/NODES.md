@@ -116,14 +116,22 @@ See [VALIDATION.md](VALIDATION.md) for the raw experiments behind the ✅ entrie
 
 | Node | Probable function |
 |---|---|
-| `1004`, `4700` | Notification settings |
-| `1032` | Memory info |
-| `1007`, `1008` | Time / location sync |
-| `5710`, `5711`, `5712`, `5720`, `5750` | Media / time related |
-| `7200`, `7310`, `7400`, `7600` | Unidentified |
-| `3300`, `5500`, `5610`, `5620` | Unidentified |
-| `9000`, `9001`, `A001`, `B001`–`B004`, `C109` | Unidentified |
-| `102A`, `102C`, `1030`, `1031` | Unidentified |
+| `1004`, `4700` | Notification settings (`WmNotification`, `WmNotificationSetting`) — `1004` replies with a no-op status, `4700` is silent |
+| `1007` | Date-time sync (`WmDateTime`) |
+| `1008` | SDK settings (`SJUniWatch`) |
+| `102A`, `102C`, `5610`, `5620` | Video control / frame info (`WmVideoFrameInfo`) |
+| `5710`, `5711`, `5720`, `5750` | Media / camera module (`WmVideoFrameInfo`) |
+| `7200`, `7300`, `7310`, `7400`, `7500`, `7600` | Image / video transfer (`WmVideoFrameInfo`) |
+| `9000`, `9001` | Media transfer control |
+| `3300` | Watch dials (`WmDial`) — same builder as the watch-only `3100`/`3200` |
+| `5500` | Unidentified (builder class has no entity type) |
+| `A001` | Raw sensor data (`WmSensorDataResponse`) |
+| `B001`–`B004` | Muslim prayer reminders |
+| `1030`, `1031`, `1032` | Unidentified |
+| `C109` | Camera control (ad-hoc, not in the builder table) |
+
+Node → feature mapping above is derived from the entity types each builder class references; see
+§7 for the full 68-node table.
 
 ### Settings sub-commands (`1017`)
 
@@ -143,9 +151,40 @@ See [VALIDATION.md](VALIDATION.md) for the raw experiments behind the ✅ entrie
 
 ## 5. ⌚ Watch-only (shared SDK, not expected on the glasses)
 
-Heart rate alerts, sleep settings, sport goals, sedentary reminder, drink-water reminder,
-personal info, unit info, wrist raise, alarms, contacts, weather, Muslim prayer times,
-widgets, watch dials, find-device.
+These nodes come from the *shared* SJ/WM SDK and only make sense on a smartwatch. They were
+enumerated from the vendor SDK's node builders (see §7) and none of them appeared in the
+captured working glasses session.
+
+| Node | Feature | Entity |
+|---|---|---|
+| `2100` | Sport goal | `WmSportGoal` |
+| `2200` | Personal info | `WmPersonalInfo` |
+| `2300` | Unit info | `WmUnitInfo` |
+| `2500` | Sedentary reminder | `WmSedentaryReminder` |
+| `2600` | DND / reminder window | `WmNoDisturb`, `WmTimeRange` |
+| `3100`, `3200` | Watch dials | `WmDial` |
+| `4110` | Alarms | `WmAlarm` |
+| `4230` | Sport modes | `WmSport` |
+| `4320`, `4330` | Contacts / emergency call | `WmContact`, `WmEmergencyCall` |
+| `4410`, `4420` | Weather / location | `WmWeather`, `WmLocation` |
+| `4500` | Heart-rate alerts | `WmHeartRateAlerts` |
+| `4600` | Sleep settings | `WmSleepSettings` |
+| `4900` | Widgets | `WmWidget` |
+| `5110`, `5120`, `5210`, `5220` | Find device / find phone | `WmFind` |
+| `5410` | Music control | `WmMusicInfo`, `WmMusicControlType` |
+| `A000`, `A001` | Raw sensor data | `WmSensorDataRequest`, `WmSensorDataResponse` |
+| `B001`–`B004` | Muslim prayer / Allah reminders | `PrayRemind`, `WmAllah` |
+
+None of these nodes was ever sent by the glasses or answered a query. They are classified as
+watch-only from the entity types their builder classes reference, not from hardware probing.
+
+> **Also in the SDK frame set but silent on the glasses** (probed with no matching reply):
+> `3300`, `4700`, `5500`, `1008`, `1030`–`1032`, `5610`, `5620`, `5710`, `5711`, `5720`, `5750`,
+> `7200`, `7310`, `7400`, `7600`, `9000`, `C101`, `C104`.
+
+> **Shared with the glasses** (present in the captured working session, so *not* watch-only):
+> `2410`/`2420` (language, `WmLanguage`), `7100`/`7110` (status / capabilities),
+> `1007` (date-time, `WmDateTime`), `1004` (replies with an 18-byte no-op status block).
 
 ---
 
@@ -155,6 +194,53 @@ widgets, watch dials, find-device.
   no measurable effect. Resolution is treated as firmware-fixed (~640x480 on the validated unit).
 * **Voice-prompt control** — no setting found; `1017` sub 5 (`isMuted`) does not silence prompts.
 * **Audio routing over SPP** — audio uses HFP/SCO and A2DP, outside this protocol.
+
+---
+
+## 7. 📋 Complete vendor node table (68 nodes)
+
+Every node the vendor SDK can build, enumerated mechanically from the two node builders in the
+decompiled Lensmoo APK:
+
+* **`l9c.k(BBBB)[B`** — packs four ASCII bytes; called directly with the node name.
+* **`l9c.r(l9c;BBBBILjava/lang/Object;)[B`** — the Kotlin default-argument bridge over `k`; the
+  fourth byte defaults to `0x00`, so `[0x33,0x31,0x00,0x00]` is node `3100`.
+
+Scanning all call sites yields **42** direct nodes and **26** bridge nodes (no overlap) = **68**.
+
+| Builder class | Nodes | Scope / feature |
+|---|---|---|
+| `l9c` (core) | `0001` `0002` `1001` `1003` `1017` `102E` `1030` `1031` `1032` `5712` `5713` `7100` `7110` | session bind, device info, settings, user bind, memory, media counts, status, capabilities |
+| `kcc` | `1007` | date-time (`WmDateTime`) |
+| `SJUniWatch` | `1008` | SDK settings |
+| `chc` | `1004` `4700` | notification / notification settings |
+| `yac` | `102A` `102C` | video control (ACK-only, see §6) |
+| `nlc` / `wlc` | `5710` `5711` `5720` `5750` `5770` `5780` `57A0` `57B0` | media / camera module |
+| `jfc` | `5610` `5620` | video frame info |
+| `xhc` | `7200` `7300` `7310` `7400` `7500` `7600` | image / video transfer |
+| `i7c` | `9000` `9001` | media transfer control |
+| `eic` | `A000` `A001` | raw sensor data |
+| `ogc` | `B001` `B002` `B003` `B004` | Muslim prayer / Allah reminders |
+| `bdc` | `3100` `3200` `3300` | watch dials |
+| `lfc` | `2100` | sport goal |
+| `ncc` | `2200` | personal info |
+| `vfc` | `2300` | unit info |
+| `cec` | `2410` `2420` | language |
+| `edc` | `2500` | sedentary reminder |
+| `bbc` | `2600` | DND / reminder window |
+| `d9c` | `4110` | alarms |
+| `lic` | `4230` | sport modes |
+| `wbc` | `4320` `4330` | contacts / emergency call |
+| `bmc` | `4410` `4420` | weather / location |
+| `bcc` | `4500` | heart-rate alerts |
+| `rdc` | `4600` | sleep settings |
+| `imc` | `4900` | widgets |
+| `pdc` | `5110` `5120` `5210` `5220` | find device / find phone |
+| `tfc` | `5410` | music control |
+
+Nodes in §2/§3 that are **not** in this table (`57B1`, `7320`, `C101`, `C104`, `C107`, `C10A`,
+`C109`) are handled outside the node builder — they are parsed from replies or built ad-hoc by the
+session code, which is why they never appear as builder constants.
 
 ---
 
@@ -228,11 +314,10 @@ VolcEngine / ZLSY speech engines).
 > (the SDK expands each byte to 8 bits and reverses it, so the LSB-first reading is the most
 > likely). The bit→function mapping itself was extracted directly from the vendor parser.
 
-```
-0001 0002 1001 1003 1004 1007 1008 1017 102A 102C 102E 1030 1031 1032
-3300 4700 5500 5610 5620 5710 5711 5712 5713 5720 5750 5770 5780 57A0 57B0
-7200 7300 7310 7400 7500 7600 9000 9001 A001 B001 B002 B003 B004 C109
-```
+See §7 for the complete 68-node builder table.
 
-Plus nodes used by the captured working session that are built outside the vendor SDK's node
-table: `2410`, `2420`, `7100`, `7110`, `C101`, `C104`, `C107`, `C10A`, `7320`, `57B1`.
+Nodes observed in the captured working session but **not** produced by the node builder — they
+are parsed from replies or assembled ad-hoc by the session code:
+
+`57B1` (capture ACK), `7320` (element count), `C101`, `C104`, `C107`, `C10A`, `C109` (camera
+control).
