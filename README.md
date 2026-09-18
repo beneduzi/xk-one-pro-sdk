@@ -4,6 +4,12 @@ Lensmoo-free, reverse-engineered Bluetooth SPP support and SDK for the Shenju XK
 
 > **Status**: experimental reverse-engineering SDK. Several behaviours are validated live (connect, user bind, capture, download, battery, buttons); others are inferred and marked as such. Do not treat the documentation as a vendor specification.
 
+> ⚠️ **Firmware update (OTA) is deliberately out of scope — do not probe it.** The protocol
+> models an OTA channel (`OtaCmdInfo`: `crc`, `offSet`, `payload`, plus the `supportOtaState`
+> capability bit), but a malformed or partial update command can **permanently brick the
+> glasses**. No OTA helper exists in this SDK, and no OTA frame should be sent. The protocol is
+> documented for completeness only. See [docs/PAYLOADS.md](docs/PAYLOADS.md) §3.
+
 ---
 
 ## 🔒 On-Device Operation & Zero Runtime Cloud Dependencies

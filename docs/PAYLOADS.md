@@ -129,7 +129,7 @@ Full node → entity → field map extracted mechanically from the node builders
 | `1007` | `WmDateTime` / `TimeSyncBean` | `currentDate`/`currDate`, `currentTime`/`currTime`, `timeZone`/`timeZoo`, `timestamp` |
 | `102A`, `102C`, `5610`, `5620` | `WmVideoFrameInfo` | `frameId`, `frameType`, `frameLen`, `frameData` |
 | `7200`, `7300`, `7310`, `7400`, `7500`, `7600` | `WmVideoFrameInfo` | same (image/video transfer) |
-| `102A`, `102C`, `5610`, `5620` | `OtaCmdInfo` | `crc`, `offSet`, `payload` — **OTA update channel** |
+| `102A`, `102C`, `5610`, `5620` | `OtaCmdInfo` | `crc`, `offSet`, `payload` — **OTA update channel. ⚠️ DO NOT PROBE (see below)** |
 | `1030`, `1031`, `1032` | `SyncTime` | `startTime`, `endTime` |
 | `1030`, `1031`, `1032` | `WmStorageType` | `TOTAL`, `DIAL_STORAGE`, `MUSIC_STORAGE` |
 | `1030`, `1031`, `1032` | `DivideInfo` | `divideType`, `payloadPackTotalLen` |
@@ -182,11 +182,15 @@ Full node → entity → field map extracted mechanically from the node builders
 2. **`1001` is a subset.** The SDK's `BasicInfo` defines 31 fields; this unit serves 18 via `1001`
    and the rest via `1003`/`5712`/`5713`.
 3. **`ERR_CODE_OK` with no data is meaningful** (e.g. `2420`) — a successful write, not a failure.
-4. **Unexplored but modelled:** OTA (`OtaCmdInfo` + `supportOtaState`), time sync
-   (`1007`/`1030`–`1032`), notifications (`1004`/`4700`).
+4. **Unexplored but modelled:** time sync (`1007`/`1030`–`1032`) and notifications
+   (`1004`/`4700`).
 5. **Sensor streaming is modelled but absent.** `A000`/`A001` (`WmSensorDataRequest` /
    `WmSensorDataResponse`, G-sensor at 25/50/100 Hz) answer `ERR_CODE_INVALID_URN` for every
    payload and action tried — the glasses do not expose raw motion data over SPP.
+6. **OTA is out of scope on purpose.** `OtaCmdInfo` (`crc`, `offSet`, `payload`) and the
+   `supportOtaState` bit describe a firmware-update channel, but a malformed update can
+   **permanently brick the device**. It is documented for completeness only: do not send OTA
+   frames, and no OTA helper exists in this SDK.
 
 > Caveat: §3 is a *data-model* catalog. Membership in the SDK does not imply the glasses firmware
 > implements the node — §2 and the `ERR_CODE_INVALID_URN` results are the hardware evidence.
