@@ -136,6 +136,7 @@ The XK One Pro wire protocol uses a two-tier framing structure:
 * [docs/REVERSE_ENGINEERING.md](docs/REVERSE_ENGINEERING.md) — Chronological investigation, breakthrough milestones, and disassembly findings.
 * [docs/VALIDATION.md](docs/VALIDATION.md) — Physical test harness, experiments and raw results (what is proven, what is not).
 * [docs/NODES.md](docs/NODES.md) — Command/node inventory with an explicit confidence level per entry.
+* [docs/PAYLOADS.md](docs/PAYLOADS.md) — Structured payload reference: the reply `type`/`ErrorCode` enums and the entity (field-level) schema of every payload the vendor SDK models.
 
 ---
 

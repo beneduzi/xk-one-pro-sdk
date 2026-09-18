@@ -118,6 +118,23 @@ The `action` field of a device reply distinguishes its kind:
 `from_device` (`cmd & 0x8000`) only indicates direction; it does **not** distinguish a response
 from a push.
 
+### Reply `type` and status codes
+
+Inside a reply, after the 4-char node, the payload is `[type:1][len:2 LE][data]`. The `type` byte
+is the SDK's **`DataFormat` enum**, and when it is `FMT_ERRCODE` the single data byte is an
+**`ErrorCode`**:
+
+| `type` | `DataFormat` | | code | `ErrorCode` |
+|:---:|---|---|:---:|---|
+| `0x00` | `FMT_BIN` | | `0x00` | `ERR_CODE_OK` |
+| `0x01` | `FMT_PLAIN_TXT` | | `0x01` | `ERR_CODE_FAIL` |
+| `0x02` | `FMT_JSON` | | `0x03` | `ERR_CODE_INVALID_PARAM` |
+| `0x03` | `FMT_NODATA` | | `0x04` | `ERR_CODE_INVALID_URN` |
+| `0x04` | `FMT_ERRCODE` | | `0x05` | `ERR_CODE_INVALID_DATA` |
+
+`ERR_CODE_INVALID_URN` is what the unimplemented camera-control nodes return; see
+[PAYLOADS.md](PAYLOADS.md) for the full tables and the entity schema of every payload.
+
 ---
 
 ## 4. Photo Capture & Download Pipeline

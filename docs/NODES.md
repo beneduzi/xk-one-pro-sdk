@@ -105,11 +105,16 @@ See [VALIDATION.md](VALIDATION.md) for the raw experiments behind the ✅ entrie
 > argument do not answer an argument-less query.
 >
 > **Reply layout** (bytes after the node in a `0x30` reply): `[type:1][len:2 LE][data]`.
-> `type = 0x02` means data follows (e.g. `1001` returns a 410-byte JSON, `5712` a 52-byte JSON);
-> `type = 0x04` means a one-byte status/error code follows instead of data. Nodes returning
-> `0x04` are recognised by the device but produce no usable data:
-> `1004` (→ `04`), `1007` (→ `04`), `5780` (→ `03`), `9001` (→ `05`), `C107` (→ `04`),
-> `C109` (→ `04`).
+> `type` is the SDK's **`DataFormat` enum**: `0x00` `FMT_BIN`, `0x01` `FMT_PLAIN_TXT`,
+> `0x02` `FMT_JSON`, `0x03` `FMT_NODATA`, `0x04` `FMT_ERRCODE`. For `0x04` the single data byte
+> is an **`ErrorCode`**: `0x00` `OK`, `0x01` `FAIL`, `0x02` `NODATA`, `0x03` `INVALID_PARAM`,
+> `0x04` **`INVALID_URN` (node not implemented)**, `0x05` `INVALID_DATA`, `0x06` `INVALID_CMD`.
+>
+> So the "no-op status" reported for `C101`, `C104`, `C107`, `C109`, `C10A`, `1004`, `1007`,
+> `9000`, `5710` is precisely `ERR_CODE_INVALID_URN` — those URNs are not implemented. `5780`
+> returns `INVALID_PARAM` and `9001` returns `INVALID_DATA` (recognised but called wrongly), and
+> `2420` returns `OK` with no data (a successful write). Full enum tables and the entity schema of
+> every payload: [PAYLOADS.md](PAYLOADS.md).
 
 ---
 
