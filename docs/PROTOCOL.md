@@ -399,9 +399,26 @@ base64 "AQ0AMTc4OTY3NjIwMjQ3MTQ2NA==" -> 01 0d 00 "1789676202471464"
 
 ### Envelope
 
-The `0x2B` payload is `[01][msg_id][order][...][0x41]` followed by the JSON. `msg_id` is `0x08` for
-FGS and `0x09` for FND. `F060…`/`F04F…` frames on the same channel are separate custom
-sub-protocols (not decoded).
+The `0x2B` payload begins with a small binary header before the JSON. Observed frames:
+
+| Direction | Payload prefix (hex) | Reading |
+|---|---|---|
+| App → glasses | `01 00 08 00 41` + JSON | FGS request (`sid` byte `0x08`) |
+| App → glasses | `01 00 09 00 41` + JSON | FND request (`sid` byte `0x09`) |
+| App → glasses | `01 00 00 f0 60 01 00` | `F060` sub `0x01` |
+| App → glasses | `01 00 01 f0 60 03 00` | `F060` sub `0x03` |
+| Glasses → App | `01 10 2e f0 60 00 00` | `F060` sub `0x00` |
+| Glasses → App | `01 10 2f f0 60 02 00` + 28 B | `F060` sub `0x02`, with data |
+| Glasses → App | `01 10 30 f0 4f 01 00` | `F04F` sub `0x01` |
+| Glasses → App | `01 10 31 f0 41` + JSON | FGS response |
+
+Working model: `[ver:1 = 0x01][dir:1][sid/order:1][tag:2 BE][sub:1][payload…]`, where `dir` is
+`0x00` for app→glasses and `0x10` for glasses→app, and the `sid` byte is `0x08` (FGS) / `0x09`
+(FND). The `0x41` seen before the JSON is a constant marker.
+
+> **Partially decoded.** The JSON envelope (`{"sid","data","ver"}`) is verified; the binary
+> header above is inferred from a handful of frames. `F060`/`F04F` are separate custom
+> sub-protocols on the same channel and are **not** decoded.
 
 > Because `FGS`/`FND` gate the **voice assistant** rather than the camera, a host that only wants
 > photos can omit the whole channel.
