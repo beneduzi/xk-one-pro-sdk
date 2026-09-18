@@ -33,8 +33,11 @@ def main():
             print("Connected & setup complete.")
 
         elif args.action == "battery":
-            level = client.get_battery()
-            print(f"Battery: {level}%" if level is not None else "Battery query timed out.")
+            level, charging = client.get_battery_status()
+            if level is None:
+                print("Battery query timed out.")
+            else:
+                print(f"Battery: {level}% (charging={'yes' if charging else 'no'})")
 
         elif args.action == "count":
             cnt = client.photo_count()

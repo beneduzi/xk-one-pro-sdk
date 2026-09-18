@@ -190,23 +190,54 @@ Reassembling a valid JPEG requires operating across both layers:
 
 ## 5. Battery & Power Monitoring
 
-Battery level can be determined through two methods:
+Battery level is available from **two** nodes, and the charging flag from **one**.
 
-### Method A: Active Query (`1001`)
-* App sends control frame with node `1001`, `action = 1`, and argument `[0x00]`.
-* The glasses reply with a JSON payload. Observed live example (abridged):
+### Method A: Battery status (`1003`) — preferred
+
+* App sends `1003`, `action = 1`, argument `[0x00]`.
+* The reply is **binary**, `type = 0x00`, length 10:
+  `[is_charging:1][battery_main:1]` followed by 8 bytes of padding (all zeros observed).
+* `is_charging` is `1` while on the charger, `0` otherwise. **This is the only node that reports
+  it.** The vendor SDK parses exactly these two bytes in `SJUniWatch.batteryBackBusiness()` into
+  `BatteryBean` (`is_charging`, `battery_main`).
+
+Verified live in one session (glasses on the charger):
+
+```
+node 1003: type=0x00 len=10
+  data: 01 64 00 00 00 00 00 00 00 00
+  is_charging  = 1
+  battery_main = 100
+```
+
+Historical captures show both states with a coherent level, confirming the flag is real rather
+than a constant:
+
+| `data[0]` (charging) | `data[1]` (level) | seen |
+|:---:|:---:|:---:|
+| 0 | 95 / 97 / 100 | ✅ |
+| 1 | 95 / 96 / 98 / 100 | ✅ |
+
+### Method B: Device info (`1001`)
+
+* App sends `1001`, `action = 1`, argument `[0x00]`.
+* The reply is a JSON blob that **also** carries `battery_main` (as a string). It does **not**
+  carry a charging flag. Observed live example (abridged):
 
 ```json
 {"prod_mode":"E13C-1","soft_ver":"1.0.2","mac_addr":"FA:00:11:12:F7:73",
- "dev_id":"...","dev_name":"xk one Pro_F773","battery_main":"95",
+ "dev_id":"...","dev_name":"xk one Pro_F773","battery_main":"100",
  "screen":"w320h380","preview_width":"160","preview_height":"120","offline_asr_auth":"1"}
 ```
 
-### Method B: Video-preview state (`57A0`)
+`1001` is worth sending for the rest of the device info; `1003` is the cheaper battery read
+(10 bytes vs 411) and the only source of `is_charging`.
 
-`57A0` is **not** a battery push. The vendor SDK's video-preview handler
+### Not a battery node: `57A0`
+
+`57A0` is the **video-preview state**, not a battery push. The vendor SDK's video-preview handler
 (`AbVideoPreview` / the `Wlc` implementation) sends `57A0` with an empty payload and reads
-`data[0]` of the reply as the **video-preview state** (`0` = off, `1` = on). Its log strings are
+`data[0]` of the reply as the preview state (`0` = off, `1` = on). Its log strings are
 *"App get video preview 事件"* (request) and *"device video preview state"* (reply).
 
 Verified live while the battery reported `100`:
@@ -216,11 +247,8 @@ Verified live while the battery reported `100`:
 | App → glasses | `[type=0x00][len=1][0x00]` | query preview state |
 | Glasses → App | `[type=0x00][len=1][0x00]` | preview off |
 
-So the reply byte is a preview flag, **not** a charge level — treating it as a battery percentage
-reports `0%` on a fully charged device. Battery comes from `1001` (`battery_main`) only.
-
-> There is **no** observed charging flag in the protocol. The SDK's `is_charging` therefore has no
-> data source and stays `False`.
+So that reply byte is a preview flag, **not** a charge level — treating it as a battery percentage
+reports `0%` on a fully charged device.
 
 ---
 

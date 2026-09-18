@@ -57,6 +57,7 @@ See [VALIDATION.md](VALIDATION.md) for the raw experiments behind the ✅ entrie
 | End transfer | `7500` | Closes the image session |
 | JPEG reassembly | 2 layers | Strip 4B `cmd_idx` + 5B metadata → 640x480 JPEG |
 | Device info + battery | `1001` | JSON: `prod_mode`, `soft_ver`, `mac_addr`, `dev_id`, `dev_name`, `battery_main`, `screen`, `preview_*`, `offline_asr_auth` |
+| Battery + charging | `1003` | Binary `[is_charging:1][battery_main:1]` + 8B padding. **The only node reporting the charging flag** (SDK: `SJUniWatch.batteryBackBusiness` → `BatteryBean`) |
 | Media counts | `5713` | JSON: `photo_num`, `video_num`, `record_num`, `music_num` |
 | Settings (read) | `1017` | Returns a 4-byte bitmask |
 | Generic ACK | `0004` | Payload `[0x01, received_order]` |
@@ -69,7 +70,6 @@ See [VALIDATION.md](VALIDATION.md) for the raw experiments behind the ✅ entrie
 |---|---|
 | `7100` | Device status (16-byte data block) |
 | `7110` | Device capabilities |
-| `1003` | Firmware (10-byte data block) |
 | `5712` | **Memory info** — JSON `{"total_memory":N,"remain_memory":N}` |
 | `57A0` | **Video-preview state** — empty-payload query; reply `data[0]` = state (0 = off, 1 = on). Not battery (see §3 note) |
 | `5770` | Storage capacity |

@@ -26,6 +26,10 @@ class XkGlassesController(private val device: BluetoothDevice, private val cache
     var previewState: Int? = null
         private set
 
+    /** Charging flag, reported only by node 1003. */
+    var isCharging: Boolean = false
+        private set
+
     private val client = XkSppClient(device)
     private val photoLock = Any()
     private var bound = false
@@ -219,9 +223,22 @@ class XkGlassesController(private val device: BluetoothDevice, private val cache
             return
         }
 
+        // Node 1003 is the battery status: binary [is_charging:1][battery_main:1] + 8B padding.
+        // It is the only node that reports the charging flag (the vendor SDK parses it in
+        // SJUniWatch.batteryBackBusiness() into BatteryBean).
+        if (tag == "1003" && f.fromDevice) {
+            if (p.size >= 19) {
+                val charging = (p[17].toInt() and 0xFF) == 1
+                val level = p[18].toInt() and 0xFF
+                isCharging = charging
+                batteryListener?.invoke(level, charging)
+            }
+            return
+        }
+
         // Node 57A0 is the video-preview state, NOT the battery. The vendor SDK's
         // AbVideoPreview implementation reads data[0] as the preview state. Battery comes
-        // from node 1001 (`battery_main`).
+        // from node 1003 (and `battery_main` in the 1001 JSON).
         if (tag == "57A0" && f.fromDevice) {
             // Reply payload after the 4-char node: [type:1][len:2 LE][data]
             if (p.size >= 18 && (p[14].toInt() and 0xFF) == 0x00) {

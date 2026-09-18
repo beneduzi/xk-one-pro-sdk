@@ -16,6 +16,7 @@ from .protocol import (
     build_7320,
     build_7500,
     build_ack,
+    build_battery_info_query,
     build_battery_query,
     build_bind_frames,
     build_keepalive,
@@ -153,9 +154,21 @@ class XkGlassesClient:
                 log.debug("Error parsing 1001 JSON: %s", e)
             return
 
+        # Battery status (node 1003) — binary [is_charging:1][battery_main:1] + 8B padding.
+        # This is the ONLY node that reports the charging flag. The vendor SDK parses it in
+        # SJUniWatch.batteryBackBusiness() into BatteryBean.
+        if tag == "1003" and from_device:
+            data = p[17:]
+            if len(data) >= 2:
+                self.is_charging = data[0] == 1
+                self.battery_level = data[1]
+                if self.on_battery:
+                    self.on_battery(self.battery_level, self.is_charging)
+            return
+
         # Video-preview state (node 57A0). NOT the battery: the vendor SDK's video-preview
         # handler reads data[0] as the preview state (0 = off, 1 = on). Battery comes from
-        # node 1001 (`battery_main`).
+        # nodes 1001 (`battery_main`) and 1003.
         if tag == "57A0" and from_device:
             state = _reply_data_byte(p)
             if state is not None:
@@ -214,8 +227,12 @@ class XkGlassesClient:
         self.send(build_keepalive(self._next_order()))
 
     def query_battery(self) -> None:
-        """Sends battery query frame (node 1001)."""
-        self.send(build_battery_query(self._next_order(), self._next_order(1)))
+        """Sends the battery-status query (node 1003).
+
+        Node 1003 returns the level **and** the charging flag, so it is preferred over the
+        1001 device-info query for battery reads.
+        """
+        self.send(build_battery_info_query(self._next_order(), self._next_order(1)))
 
     def get_battery(self, timeout: float = 3.0) -> Optional[int]:
         """Queries and returns the battery level percentage (0..100)."""
@@ -227,6 +244,18 @@ class XkGlassesClient:
                 return self.battery_level
             time.sleep(0.1)
         return self.battery_level
+
+    def get_battery_status(self, timeout: float = 3.0) -> tuple:
+        """Queries and returns ``(level, is_charging)``; level may be ``None`` on timeout."""
+        self.battery_level = None
+        self.is_charging = False
+        self.query_battery()
+        end = time.time() + timeout
+        while time.time() < end:
+            if self.battery_level is not None:
+                break
+            time.sleep(0.1)
+        return self.battery_level, self.is_charging
 
     def photo_count(self, timeout: float = 2.0) -> int:
         """Queries the current photo element count."""

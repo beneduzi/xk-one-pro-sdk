@@ -127,8 +127,9 @@ into the reserved envelope bytes `[14:16]`. Both are corrected in the SDK update
 * Behaviour on other firmware versions or hardware revisions.
 * Whether a `userId` issued for a *different* vendor account is accepted (no second valid sample).
 * The exact cryptographic construction of the `userId`.
-* Battery `57A0`/`57A1` semantics and charging transitions — see §10: `57A0` is the video-preview
-  state, and **no** charging flag was found in the protocol.
+* Battery `57A0`/`57A1` semantics — `57A0` is the video-preview state, and the battery/charging
+  node is `1003` (see §10). Battery **level** and **charging** are both verified; only the
+  8 padding bytes of the `1003` payload remain unexplained.
 * A resolution-selection command (none found).
 * Long-run keepalive/timeout behaviour.
 
@@ -306,14 +307,33 @@ derived from), and the advertised preview is **160×120** while the transferred 
 | `5712` | `{"total_memory":665338288,"remain_memory":665338288}` | ~634 MB, nothing stored |
 | `5713` | `{"photo_num":"0","video_num":"0","record_num":"0","music_num":"0"}` | no stored media |
 | `C101` `C104` `C107` `C109` `C10A` | `[type=0x04][len=1][0x04]` | identical no-op status — camera-control nodes are not implemented |
+| `1003` | `[type=0x00][len=10][01 64 00 00 00 00 00 00 00 00]` | **battery**: `is_charging = 1`, `battery_main = 100` (see below) |
 | `57A0` | `[type=0x00][len=1][0x00]` | video-preview state = off (see below) |
 
 The identical `0x04` status from all five `C10x` nodes (and the same value for `1004`) confirms
 they are recognised-but-unimplemented: the firmware answers a fixed status instead of data.
 
+### Correction: `1003` is the battery node, and `is_charging` **is** available
+
+`1003` had been mislabelled "firmware (10-byte data block)". It is the **battery status** node.
+
+* **SDK evidence**: `SJUniWatch.commonBusiness()` dispatches on `urn[1]=='0'`, `urn[2]=='0'`,
+  `urn[3]=='3'` → node `X003` → `batteryBackBusiness(NodeData)`. That method requires
+  `FMT_BIN` and reads `data[0]` as `is_charging` and `data[1]` as `battery_main` into
+  `BatteryBean`.
+* **Live evidence**: `1001.battery_main = 100` and `1003 → is_charging = 1, battery_main = 100`
+  in the same session.
+* **Historical evidence**: across captures both flag values appear with a coherent level —
+  `is_charging = 0` at 95/97/100 and `is_charging = 1` at 95/96/98/100 — so the flag is real,
+  not a constant.
+
+An earlier note in this document claimed there was *no* charging flag in the protocol. That was
+**wrong**; it was based on `1001` alone, which genuinely has no such field. Charging comes from
+`1003` only.
+
 ### Correction: `57A0` is the video-preview state, not the battery
 
-Earlier notes (and `client.py`) treated `57A0` as a battery push. That is wrong.
+Earlier notes (and `client.py`) treated `57A0` as a battery push. That is also wrong.
 
 * **SDK evidence**: `Wlc` extends `AbVideoPreview`. Its `57A0` builder (`w()`) is called from the
   handler that logs *"App get video preview 事件"*, and the reply parser reads `NodeData.data[0]`
@@ -322,8 +342,9 @@ Earlier notes (and `client.py`) treated `57A0` as a battery push. That is wrong.
   `0x00` — parsing it as a level yields `0 %` on a full battery.
 
 Fix applied: `client.py` no longer derives battery from `57A0`; it exposes the preview state via
-`preview_state` / `on_preview_state`, and battery comes from `1001` only. Regression test:
-`test_57a0_does_not_overwrite_battery`.
+`preview_state` / `on_preview_state`. Battery level and charging come from `1003` (and the level
+also from `1001`). Regression tests: `test_57a0_does_not_overwrite_battery`,
+`test_1003_reports_level_and_charging`.
 
 ### Reply layout (re-confirmed)
 

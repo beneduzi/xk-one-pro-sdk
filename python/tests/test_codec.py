@@ -271,6 +271,42 @@ def test_57a0_does_not_overwrite_battery():
     assert c.preview_state == 0x00
 
 
+# --- Battery status (node 1003) --------------------------------------------
+# Real captured reply, binary [is_charging:1][battery_main:1] + 8B padding.
+_CAP_1003_CHARGING = "a600ffffffff6480000131303033000a0001640000000000000000"
+_CAP_1003_IDLE = "a600ffffffff6480000131303033000a0000640000000000000000"
+
+
+def test_battery_info_query_targets_1003():
+    f = protocol.build_battery_info_query(cmd_order=0x94, request_id=0x95)
+    assert f.payload[10:14] == b"1003"
+    assert protocol.verify_crc(f)
+
+
+def test_1003_reports_level_and_charging():
+    from xkglasses.client import XkGlassesClient
+
+    c = XkGlassesClient()
+    c._handle_frame(Frame(
+        head=0x30, cmd=0x8002, cmd_order=0x0B,
+        payload=bytes.fromhex(_CAP_1003_CHARGING),
+    ))
+    assert c.battery_level == 100
+    assert c.is_charging is True
+
+    c._handle_frame(Frame(
+        head=0x30, cmd=0x8002, cmd_order=0x0B,
+        payload=bytes.fromhex(_CAP_1003_IDLE),
+    ))
+    assert c.battery_level == 100
+    assert c.is_charging is False
+
+
+def test_battery_info_query_does_not_break_1001_golden():
+    """`build_battery_query` must stay on 1001 (device info) — it has a byte-exact golden."""
+    assert protocol.build_battery_query(0x8E).payload[10:14] == b"1001"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

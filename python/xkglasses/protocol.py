@@ -204,10 +204,29 @@ def build_7500(cmd_order: int = 0x34, request_id: int = 0x56) -> Frame:
 
 
 def build_battery_query(cmd_order: int = 0x8E, request_id: int = 0x8F) -> Frame:
-    """Query battery level (node 1001 with action 1)."""
+    """Query device info (node 1001 with action 1).
+
+    The 1001 reply is a JSON blob that also carries ``battery_main``. Use
+    :func:`build_battery_info_query` for the compact binary battery reply, which is the only
+    source of the charging flag.
+    """
     return build_control(
         cmd_order=cmd_order,
         command_node="1001",
+        action_type=1,
+        request_id=request_id,
+    )
+
+
+def build_battery_info_query(cmd_order: int = 0x94, request_id: int = 0x95) -> Frame:
+    """Query battery status (node 1003 with action 1).
+
+    The 1003 reply is binary: ``[is_charging:1][battery_main:1]`` followed by 8 bytes of
+    padding. It is the only node that reports the charging state. See docs/NODES.md.
+    """
+    return build_control(
+        cmd_order=cmd_order,
+        command_node="1003",
         action_type=1,
         request_id=request_id,
     )
