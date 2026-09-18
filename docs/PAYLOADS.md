@@ -133,7 +133,7 @@ Full node → entity → field map extracted mechanically from the node builders
 | `1030`, `1031`, `1032` | `SyncTime` | `startTime`, `endTime` |
 | `1030`, `1031`, `1032` | `WmStorageType` | `TOTAL`, `DIAL_STORAGE`, `MUSIC_STORAGE` |
 | `1030`, `1031`, `1032` | `DivideInfo` | `divideType`, `payloadPackTotalLen` |
-| `A000`, `A001` | `WmSensorDataRequest` / `WmSensorDataResponse` | `sensorType` (`G_SENSOR`, `OTHER`), `sensorFrequency` (`25`/`50`/`100`), `data`, `dataLen` — **raw accelerometer streaming** |
+| `A000`, `A001` | `WmSensorDataRequest` / `WmSensorDataResponse` | `sensorType` (`G_SENSOR`, `OTHER`), `sensorFrequency` (`25`/`50`/`100`), `data`, `dataLen` — modelled as raw accelerometer streaming, but **not implemented** on this firmware (`ERR_CODE_INVALID_URN` for every action, see [VALIDATION.md](VALIDATION.md) §12) |
 | `5500` | — | builder has no entity type |
 
 ### Watch-only
@@ -182,8 +182,11 @@ Full node → entity → field map extracted mechanically from the node builders
 2. **`1001` is a subset.** The SDK's `BasicInfo` defines 31 fields; this unit serves 18 via `1001`
    and the rest via `1003`/`5712`/`5713`.
 3. **`ERR_CODE_OK` with no data is meaningful** (e.g. `2420`) — a successful write, not a failure.
-4. **Unexplored but modelled:** OTA (`OtaCmdInfo` + `supportOtaState`), raw sensor streaming
-   (`A000`/`A001`), time sync (`1007`/`1030`–`1032`), notifications (`1004`/`4700`).
+4. **Unexplored but modelled:** OTA (`OtaCmdInfo` + `supportOtaState`), time sync
+   (`1007`/`1030`–`1032`), notifications (`1004`/`4700`).
+5. **Sensor streaming is modelled but absent.** `A000`/`A001` (`WmSensorDataRequest` /
+   `WmSensorDataResponse`, G-sensor at 25/50/100 Hz) answer `ERR_CODE_INVALID_URN` for every
+   payload and action tried — the glasses do not expose raw motion data over SPP.
 
 > Caveat: §3 is a *data-model* catalog. Membership in the SDK does not imply the glasses firmware
 > implements the node — §2 and the `ERR_CODE_INVALID_URN` results are the hardware evidence.

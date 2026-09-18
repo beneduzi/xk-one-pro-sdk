@@ -439,3 +439,37 @@ error code does not change with the argument or the action, so:
 > Operational note: opening sessions back-to-back **in the same process** fails with
 > `OSError: [Errno 16] Device or resource busy` after the first one, even with delays and retries.
 > A fresh process per session always works. Any future sweep should therefore fork per request.
+
+---
+
+## 13. Raw sensor streaming: negative result
+
+The vendor SDK models a raw motion channel — `WmSensorDataRequest` / `WmSensorDataResponse` with a
+G-sensor at 25 / 50 / 100 Hz. It was worth testing because it is the only modelled feature that
+would add a genuinely new capability over SPP.
+
+The builders were decoded first (`com.android.mltcode.paycertificationapi.eic`):
+
+| Node | Builder | Payload |
+|---|---|---|
+| `A000` | `eic.e(WmSensorDataRequest)` | `[sensorType:1][sensorFrequency:1]`, `FMT_BIN` — `0` = `G_SENSOR`, freq `0`/`1`/`2` = 25/50/100 Hz |
+| `A001` | `eic.f(boolean)` | `[flag:1]`, `FMT_BIN` — start/stop |
+
+Live results on the validated unit:
+
+| Node | Payload | Action | Reply |
+|---|---|---|---|
+| `A000` | `00 02` (G_SENSOR @100 Hz) | 3 | `ERR_CODE_INVALID_URN` |
+| `A000` | `00 02` | 1, 2 | `ERR_CODE_INVALID_URN` |
+| `A001` | `01` (start) | 3 | `ERR_CODE_INVALID_URN` |
+| `A001` | `01` | 1, 2 | `ERR_CODE_INVALID_URN` |
+
+Every combination returned the same `FMT_ERRCODE / ERR_CODE_INVALID_URN`, and no data frames of any
+kind arrived during 12 s of listening after each request.
+
+**Conclusion:** `A000`/`A001` are **not implemented** in this firmware. The glasses do **not**
+expose raw accelerometer/motion data over SPP. This is consistent with `WmFunctionSupport` having
+no sensor-related capability flag.
+
+> Note: the request used `action 3` (EXECUTE) as well as 1/2, so this is not an
+> argument-or-action problem — the URN itself is rejected.

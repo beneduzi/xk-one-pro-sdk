@@ -132,7 +132,7 @@ See [VALIDATION.md](VALIDATION.md) for the raw experiments behind the ✅ entrie
 | `9000`, `9001` | Media transfer control |
 | `3300` | Watch dials (`WmDial`) — same builder as the watch-only `3100`/`3200` |
 | `5500` | Unidentified (builder class has no entity type) |
-| `A001` | Raw sensor data (`WmSensorDataResponse`) |
+| `A001` | Raw sensor data (`WmSensorDataResponse`) — **not implemented** (`ERR_CODE_INVALID_URN`) |
 | `B001`–`B004` | Muslim prayer reminders |
 | `1030`, `1031`, `1032` | Unidentified |
 | `C109` | Camera control (ad-hoc, not in the builder table) |
@@ -179,7 +179,7 @@ captured working glasses session.
 | `4900` | Widgets | `WmWidget` |
 | `5110`, `5120`, `5210`, `5220` | Find device / find phone | `WmFind` |
 | `5410` | Music control | `WmMusicInfo`, `WmMusicControlType` |
-| `A000`, `A001` | Raw sensor data | `WmSensorDataRequest`, `WmSensorDataResponse` |
+| `A000`, `A001` | Raw sensor data | `WmSensorDataRequest`, `WmSensorDataResponse` — **not implemented** on this firmware |
 | `B001`–`B004` | Muslim prayer / Allah reminders | `PrayRemind`, `WmAllah` |
 
 None of these nodes was ever sent by the glasses or answered a query. They are classified as
