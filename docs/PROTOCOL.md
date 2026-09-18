@@ -194,9 +194,17 @@ Reassembling a valid JPEG requires operating across both layers:
    * `divide_type == 3`: Final fragment. Payload starts with **4-byte LE `cmd_idx`** which MUST be stripped. App MUST send a `4A0009` ACK upon receiving `divide_type 3`.
 
 2. **Logical Layer (Elements 1..N)**:
-   * Once all fragments for element $i$ are concatenated, the resulting byte array has a **5-byte metadata prefix**:
-     `[element_length: 4B Little-Endian, media_type: 1B]`
+   * Once all fragments for element $i$ are concatenated, the resulting byte array has a **5-byte element header**:
+     `[media_type: 1B][element_length: 4B Little-Endian]`
+   * `media_type` is `0x00` for a photo/JPEG. `element_length` is the **total element size including
+     this 5-byte header**, so the JPEG slice is `element_length - 5` bytes.
+   * Verified against a live capture: 6 elements declared `617`, `16389` (×4) and `14414`, exactly
+     matching each assembled element's size.
    * **Strip bytes `0..4`** to obtain the raw JPEG slice for element $i$.
+
+   > An earlier version of this spec had the two fields in the opposite order
+   > (`[length: 4B LE, media_type: 1B]`). The plain 5-byte strip hid the mistake; the real layout
+   > is media-type-first.
 
 3. **JPEG Verification**:
    * Concatenate JPEG slices $1..N$ in order.

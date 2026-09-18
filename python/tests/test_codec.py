@@ -121,9 +121,9 @@ def test_image_reassembler():
     reassembler = XkImageReassembler(expected_elements=2)
 
     # Element 1: Fragmented in 2 parts (divideType 1 and 3)
-    # Metadata prefix: [length: 4B, media_type: 1B]
-    # Slice 1: \xFF\xD8\x01\x02
-    elem1_meta = (4).to_bytes(4, "little") + b"\x01" + b"\xff\xd8\x01\x02"
+    # Element header: [media_type: 1B][length: 4B LE], length = total element size
+    # Slice 1: \xFF\xD8\x01\x02  -> element = 5 + 4 = 9 bytes
+    elem1_meta = b"\x00" + (9).to_bytes(4, "little") + b"\xff\xd8\x01\x02"
     reassembler.start_element(1)
 
     # Fragment 1 (divideType 1): cmd_idx 0 (4B LE) + first 4 bytes of elem1
@@ -140,7 +140,7 @@ def test_image_reassembler():
 
     # Element 2: Unfragmented (divideType 0)
     # Slice 2: \x03\x04\xFF\xD9
-    elem2_meta = (4).to_bytes(4, "little") + b"\x01" + b"\x03\x04\xff\xd9"
+    elem2_meta = b"\x00" + (9).to_bytes(4, "little") + b"\x03\x04\xff\xd9"
     reassembler.start_element(2)
     frame3 = Frame(head=0x4A, divide_type=0, payload=elem2_meta)
     needs_ack = reassembler.feed_image_frame(frame3)
@@ -149,6 +149,36 @@ def test_image_reassembler():
     assert reassembler.is_complete
     jpeg = reassembler.build_jpeg()
     assert jpeg == b"\xff\xd8\x01\x02\x03\x04\xff\xd9"
+    # Header parsed as (media_type, total element length)
+    assert reassembler.element_meta[1] == (0x00, 9)
+    assert reassembler.element_meta[2] == (0x00, 9)
+
+
+def test_element_header_layout_from_real_capture():
+    """Element header is [media_type:1][length:4 LE] (length includes the header).
+
+    Real capture: 6 elements, raw sizes 617 / 16389 x4 / 14414. The old docstring had the
+    two fields the other way round, which the 5-byte strip happened to hide.
+    """
+    captured = [
+        (617, "0069020000"),
+        (16389, "0005400000"),
+        (16389, "0005400000"),
+        (16389, "0005400000"),
+        (16389, "0005400000"),
+        (14414, "004e380000"),
+    ]
+    r = XkImageReassembler(expected_elements=len(captured))
+    for i, (raw_len, meta_hex) in enumerate(captured, start=1):
+        r.start_element(i)
+        raw = bytes.fromhex(meta_hex) + b"\xff\xd8" + b"\x00" * (raw_len - 7)
+        assert len(raw) == raw_len
+        r.feed_image_frame(Frame(head=0x4A, divide_type=0, payload=raw))
+        media_type, declared = r.element_meta[i]
+        assert media_type == 0x00
+        assert declared == raw_len, f"element {i}: header says {declared}, raw is {raw_len}"
+        # declared length must equal the element size including the 5-byte header
+        assert declared == len(raw)
 
 
 # --- byte-exact goldens against captured frames -----------------------------

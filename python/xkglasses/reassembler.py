@@ -3,8 +3,11 @@
 The protocol operates on two layers:
 1. Logical layer: The JPEG is divided into N elements (announced by 7320,
    requested sequentially via 7300). Each assembled element contains a
-   5-byte metadata prefix [length: 4B LE, media_type: 1B] that must be
-   stripped to obtain the raw JPEG slice.
+   5-byte metadata prefix ``[media_type: 1B][length: 4B LE]`` that must be
+   stripped to obtain the raw JPEG slice. ``length`` is the total element
+   size **including** the 5-byte header, so the slice is ``length - 5`` bytes.
+   Verified against 6/6 elements of a live capture (lengths 617, 16389 x4,
+   14414 all matched the assembled element size exactly).
 2. Transport layer: Elements are transported via channel 0x4A frames (4A0001).
    Fragmented frames (divide_type 1, 2, 3) prepend a 4-byte little-endian
    cmd_idx which must be stripped from each fragment.
@@ -13,13 +16,16 @@ The protocol operates on two layers:
 """
 
 from io import BytesIO
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from .frames import Frame
 
 ELEMENT_METADATA_SIZE = 5
 PACKED_LENGTH_MASK = 0x1FFF
 JPEG_START = b"\xff\xd8"
 JPEG_END = b"\xff\xd9"
+
+# Media type byte in the element header. Only 0x00 (photo/JPEG) was observed.
+MEDIA_TYPE_PHOTO = 0x00
 
 
 class XkImageReassembler:
@@ -28,6 +34,8 @@ class XkImageReassembler:
     def __init__(self, expected_elements: Optional[int] = None):
         self.expected_elements = expected_elements
         self.completed_elements: Dict[int, bytes] = {}
+        # index -> (media_type, declared_length) from the 5-byte element header
+        self.element_meta: Dict[int, Tuple[int, int]] = {}
         self.active_element_index: Optional[int] = None
         self.active_logical_length_mod: Optional[int] = None
         self.active_next_cmd_idx: int = 0
@@ -116,7 +124,11 @@ class XkImageReassembler:
     def _store_element(self, index: int, raw_element: bytes) -> None:
         if len(raw_element) < ELEMENT_METADATA_SIZE:
             raise ValueError(f"Element {index} too small (< {ELEMENT_METADATA_SIZE} bytes)")
-        # Strip 5-byte metadata prefix [length: 4B LE, media_type: 1B]
+        # Element header: [media_type: 1B][length: 4B LE], where `length` is the total
+        # element size *including* this 5-byte header.
+        media_type = raw_element[0]
+        declared_length = int.from_bytes(raw_element[1:5], "little")
+        self.element_meta[index] = (media_type, declared_length)
         jpeg_slice = raw_element[ELEMENT_METADATA_SIZE:]
         self.completed_elements[index] = jpeg_slice
 

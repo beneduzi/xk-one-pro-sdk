@@ -96,6 +96,24 @@ Observed distribution: `OK` 50, `FAIL` 23, `INVALID_URN` 14, `INVALID_DATA` 4,
 | 1 | `DIAL_STORAGE` |
 | 2 | `MUSIC_STORAGE` |
 
+### Image element header (on channel `0x4A`)
+
+Each reassembled element starts with a 5-byte header:
+
+```
+[media_type: 1B] [element_length: 4B LE]
+```
+
+* `media_type = 0x00` for a photo/JPEG (the only value observed).
+* `element_length` is the **total element size including the 5-byte header**, so the JPEG slice
+  is `element_length - 5` bytes.
+* Verified 6/6 against a live capture: declared `617`, `16389` (×4), `14414` — exactly the
+  assembled element sizes.
+
+> The reassembler previously documented this as `[length: 4B LE, media_type: 1B]`. Because the
+> code simply strips 5 bytes, the reversed order was invisible — but the field order in the docs
+> (and in `reassembler.py`) was wrong and is now corrected.
+
 ---
 
 ## 3. SDK data-model catalog 🔵
