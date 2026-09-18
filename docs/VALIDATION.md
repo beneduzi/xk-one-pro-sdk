@@ -408,3 +408,34 @@ base64 blob decoding to `01 0d 00` + an ASCII microsecond timestamp
 **Consequence:** the whole `0x2B` channel can be omitted by a photo-only host (already established
 by ablation), and it offers no route to stored video/audio — see §9. Full details in
 [PROTOCOL.md](PROTOCOL.md) §9.
+
+---
+
+## 12. Argument / action sweep: negative result
+
+The `ErrorCode` enum (§10) separates "node not implemented" (`ERR_CODE_INVALID_URN`) from
+"recognised but called wrongly" (`ERR_CODE_INVALID_PARAM`, `ERR_CODE_INVALID_DATA`). The latter two
+were worth retrying with arguments, since the vendor SDK models them as structured writes.
+
+Every combination was sent in a **fresh session** (the device answers a given node only once per
+session), with the RFCOMM channel allowed to be released between runs.
+
+| Node | Combinations tried | Result |
+|---|---|---|
+| `5780` | `action 1` with no arg, `00`, `01`, `02`; `action 2` with `00` | always `ERR_CODE_INVALID_PARAM` |
+| `9001` | `action 1` with no arg, `00`, `0000`; `action 2` with `00` | always `ERR_CODE_INVALID_DATA` |
+| `9000` | `action 1` / `action 2` with `00` | always `ERR_CODE_INVALID_URN` |
+| `1007` | `action 1` / `action 3` with `00` | always `ERR_CODE_INVALID_URN` |
+
+**Conclusion:** none of these four nodes becomes usable through a simple single-value query. The
+error code does not change with the argument or the action, so:
+
+* `9000` and `1007` are **not implemented** in this firmware (plain `INVALID_URN`).
+* `5780` and `9001` are recognised but reject the simple query form. They are modelled in the SDK
+  as item-list / package-based writes (`PayloadPackage` with `itemList`, `packageSeq`,
+  `packageLimit`), so they would need a full multi-item package rather than a one-byte argument.
+  Reaching them is out of scope for a photo-capture host.
+
+> Operational note: opening sessions back-to-back **in the same process** fails with
+> `OSError: [Errno 16] Device or resource busy` after the first one, even with delays and retries.
+> A fresh process per session always works. Any future sweep should therefore fork per request.
